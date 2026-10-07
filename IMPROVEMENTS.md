@@ -24,6 +24,20 @@ package on the camera has to be tried.
 - The scene boxes and our video frame are matched by "latest". Idea: use the timestamps to pick the
   frame that belongs to the box.
 
+## Animals the model does not know
+The model only knows the ten COCO animals. A snake or a crocodile is either not recognised at all (no
+event, no message) or recognised as the wrong animal (a crocodile as `dog`, with a notification that
+names the wrong species), which is more likely at a low `Threshold`.
+- **Generic "something moves" event:** an event such as `AnimalDetector/Unknown` for a class-less
+  moving object that persists and that the model could not name, throttled by a long cooldown. Needs
+  strong filtering: shadows, leaves, insects and the tracker's tiny edge boxes also show up as
+  class-less objects.
+- **Any-animal detection:** a model that only decides "animal or not" (camera-trap detectors such as
+  MegaDetector work like this), combined with the species classifier for the known ones. Then an
+  unknown species is still reported as "animal". Needs a model that runs on the DLPU.
+- **Fine-tuning on camera-trap data** (see Model) adds species such as deer, raccoon and fox, but not
+  reptiles; those are not typical for such datasets.
+
 ## Model
 - Species beyond the COCO animals (raccoon, fox, deer, wild boar ...): fine-tune on camera-trap data
   (COCO Camera Traps), also for IR/night images, and convert it for the DLPU.
