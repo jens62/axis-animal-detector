@@ -325,7 +325,7 @@ static void finish_frame(const frame_ctx_t* c, animal_det_t* dets, int n, GStrin
             syslog(LOG_NOTICE, "Animal stop: %s (seen for %.1f s, best score %.2f)",
                    c->labels[events[e].label], (double)events[e].duration_ms / 1000.0,
                    events[e].best_score);
-        animal_output_send(c->output, events[e].label, events[e].start);
+        animal_output_send(c->output, events[e].label, events[e].start, events[e].best_score);
     }
 }
 

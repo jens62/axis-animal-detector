@@ -21,11 +21,12 @@ motion-detector style events by `app/animal_events.c`:
 
 Each class is a stateful camera event, declared by `app/animal_output.c`:
 
-    topic tnsaxis:AnimalDetector/<Class>     data: Detected = true | false
+    topic tnsaxis:AnimalDetector/<Class>     data: Detected = true | false, Species = "bird" ..., Score = 0..1
 
 It shows up in the camera's event list (rules, subscriptions). To get it to MQTT, add the topic to
 `MotionEvents` of [axis-scene-mqtt-bridge](https://github.com/jens62/axis-scene-mqtt-bridge)
-(and `Detected` is already one of its event keys).
+(`Detected` is already one of its event keys; add `Species` and `Score` to its `EventKeys` to get them on MQTT too).
+`Score` is the score that started the episode on "true" and the best score of the episode on "false".
 
 The log (`Apps -> Log`) shows the version and settings at start, `Animal start/stop` lines and,
 every 100 frames, the average and maximum inference time. Loading the model on the first start can

@@ -22,6 +22,7 @@ struct animal_output {
 typedef struct {
     slot_t* slot;
     bool detected;
+    double score;
 } send_job_t;
 
 static void declaration_complete(guint declaration, gpointer user_data) {
@@ -39,6 +40,7 @@ static void declare(animal_output_t* out, int label) {
     if (topic[0] >= 'a' && topic[0] <= 'z')
         topic[0] = (char)(topic[0] - 'a' + 'A');  // "cat" -> "Cat"
     gboolean start_value = FALSE;
+    gdouble start_score  = 0.0;
 
     AXEventKeyValueSet* set = ax_event_key_value_set_new();
     ax_event_key_value_set_add_key_value(set, "topic0", "tnsaxis", "AnimalDetector",
@@ -47,8 +49,16 @@ static void declare(animal_output_t* out, int label) {
                                          NULL);
     ax_event_key_value_set_add_key_value(set, "Detected", NULL, &start_value, AX_VALUE_TYPE_BOOL,
                                          NULL);
+    ax_event_key_value_set_add_key_value(set, "Species", NULL, out->labels[label],
+                                         AX_VALUE_TYPE_STRING, NULL);
+    ax_event_key_value_set_add_key_value(set, "Score", NULL, &start_score, AX_VALUE_TYPE_DOUBLE,
+                                         NULL);
     ax_event_key_value_set_mark_as_data(set, "Detected", NULL, NULL);
     ax_event_key_value_set_mark_as_user_defined(set, "Detected", NULL, "wstype:xs:boolean", NULL);
+    ax_event_key_value_set_mark_as_data(set, "Species", NULL, NULL);
+    ax_event_key_value_set_mark_as_user_defined(set, "Species", NULL, "wstype:xs:string", NULL);
+    ax_event_key_value_set_mark_as_data(set, "Score", NULL, NULL);
+    ax_event_key_value_set_mark_as_user_defined(set, "Score", NULL, "wstype:xs:float", NULL);
     ax_event_key_value_set_add_nice_names(set, "topic0", "tnsaxis", "Animal Detector", NULL, NULL);
     ax_event_key_value_set_add_nice_names(set, "topic1", "tnsaxis", topic, NULL, NULL);
     ax_event_key_value_set_add_nice_names(set, "Detected", NULL, "Detected", NULL, NULL);
@@ -82,8 +92,14 @@ static gboolean send_in_main_loop(gpointer data) {
 
     if (g_atomic_int_get(&slot->ready)) {
         gboolean detected = job->detected;
+        gdouble score     = job->score;
         AXEventKeyValueSet* set = ax_event_key_value_set_new();
         ax_event_key_value_set_add_key_value(set, "Detected", NULL, &detected, AX_VALUE_TYPE_BOOL,
+                                             NULL);
+        ax_event_key_value_set_add_key_value(set, "Species", NULL,
+                                             slot->out->labels[slot->label], AX_VALUE_TYPE_STRING,
+                                             NULL);
+        ax_event_key_value_set_add_key_value(set, "Score", NULL, &score, AX_VALUE_TYPE_DOUBLE,
                                              NULL);
         AXEvent* event = ax_event_new2(set, NULL);
         ax_event_key_value_set_free(set);
@@ -102,12 +118,13 @@ static gboolean send_in_main_loop(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-void animal_output_send(animal_output_t* out, int label, bool detected) {
+void animal_output_send(animal_output_t* out, int label, bool detected, double score) {
     if (label < 0 || (size_t)label >= out->n || out->slots[label].declaration == 0)
         return;
     send_job_t* job = g_new0(send_job_t, 1);
     job->slot       = &out->slots[label];
     job->detected   = detected;
+    job->score      = score;
     g_main_context_invoke(NULL, send_in_main_loop, job);
 }
 
