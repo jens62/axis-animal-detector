@@ -201,6 +201,59 @@ bool model_run_inference(model_provider_t* provider, VdoBuffer* vdo_buf) {
     return true;
 }
 
+bool model_run_inference_rgb(model_provider_t* provider, const uint8_t* rgb) {
+    larodError* error            = NULL;
+    static int nbr_power_retries = 0;
+    static void* input_map       = NULL;
+    size_t expected = 3 * (size_t)provider->img_info->width * provider->img_info->height;
+
+    if (!provider->use_preprocessing || provider->pp_output_tensors == NULL) {
+        panic("%s: needs a provider with preprocessing", __func__);
+    }
+    if (input_map == NULL) {
+        // The preprocessing output is the model's input: write the image there ourselves.
+        int fd = larodGetTensorFd(provider->pp_output_tensors[0], &error);
+        if (fd == LAROD_INVALID_FD) {
+            panic("%s: Could not get input tensor fd: %s", __func__, error->msg);
+        }
+        size_t size = 0;
+        if (!larodGetTensorFdSize(provider->pp_output_tensors[0], &size, &error) || size < expected) {
+            panic("%s: Input tensor too small (%zu < %zu)", __func__, size, expected);
+        }
+        input_map = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (input_map == MAP_FAILED) {
+            panic("%s: Could not map the input tensor: %s", __func__, strerror(errno));
+        }
+    }
+    memcpy(input_map, rgb, expected);
+
+    if (!provider->inf_req) {
+        provider->inf_req = larodCreateJobRequest(provider->model,
+                                                  provider->pp_output_tensors,
+                                                  provider->pp_num_outputs,
+                                                  provider->output_tensors,
+                                                  provider->num_outputs,
+                                                  NULL,
+                                                  &error);
+        if (!provider->inf_req) {
+            panic("%s: Failed creating inference job request: %s", __func__, error->msg);
+        }
+    }
+    if (!larodRunJob(provider->conn, provider->inf_req, &error)) {
+        if (error->code != LAROD_ERROR_POWER_NOT_AVAILABLE) {
+            panic("%s: Unable to run inference on model: %s (%d)", __func__, error->msg,
+                  error->code);
+        }
+        larodClearError(&error);
+        model_job_handle_no_power(&nbr_power_retries);
+        return false;
+    }
+    for (size_t i = 0; i < provider->num_outputs; i++)
+        provider->model_output_tensors[i].timestamp = 0;
+    nbr_power_retries = 0;
+    return true;
+}
+
 static void setup_tensors(larodConnection* conn,
                           larodModel* model,
                           larodTensor*** input_tensors,

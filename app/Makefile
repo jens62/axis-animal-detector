@@ -1,9 +1,9 @@
 PROG1	= $(shell jq -r '.acapPackageConf.setup.appName' manifest.json)
-OBJS1	= $(PROG1).c animal_events.c animal_output.c config.c argparse.c channel_util.c img_util.c labelparse.c model.c model_preprocessing.c panic.c
+OBJS1	= $(PROG1).c animal_events.c animal_output.c config.c crop.c regions.c scene_feed.c argparse.c channel_util.c img_util.c labelparse.c model.c model_preprocessing.c panic.c
 PROGS	= $(PROG1)
 DEBUG_DIR = debug
 
-PKGS = axevent axparameter bbox gio-2.0 gio-unix-2.0 liblarod vdostream
+PKGS = axevent axparameter device-data-hub-client-c jansson bbox gio-2.0 gio-unix-2.0 liblarod vdostream
 APP_VERSION = $(shell jq -r '.acapPackageConf.setup.version' manifest.json)
 
 LDLIBS += -lm

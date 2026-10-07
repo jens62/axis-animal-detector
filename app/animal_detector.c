@@ -53,6 +53,9 @@
 
 #include "animal_events.h"
 #include "animal_output.h"
+#include "crop.h"
+#include "regions.h"
+#include "scene_feed.h"
 #include "argparse.h"
 #include "channel_util.h"
 #include "config.h"
@@ -236,49 +239,72 @@ static int mark_animals(bool* allowed, char** labels, size_t n_labels, const cha
     return matched;
 }
 
-static void parse_and_postprocess_output_tensors(bbox_t* bbox,
-                                                 animal_tracker_t* tracker,
-                                                 animal_output_t* output,
-                                                 const bool* allowed,
-                                                 model_tensor_output_t* tensor_outputs,
-                                                 float confidence_threshold,
-                                                 char** labels,
-                                                 size_t n_labels,
-                                                 bool draw_boxes,
-                                                 float debug_threshold) {
-    // From here this is different dependent on model
-    float* locations      = (float*)tensor_outputs[0].data;
-    float* classes        = (float*)tensor_outputs[1].data;
-    float* scores         = (float*)tensor_outputs[2].data;
-    float* nbr_detections = (float*)tensor_outputs[3].data;
+/** Where a model output box lives in the image: frame = origin + box * scale (normalized). */
+typedef struct {
+    double x0;
+    double y0;
+    double sx;
+    double sy;
+} xform_t;
+
+typedef struct {
+    bbox_t* bbox;
+    animal_tracker_t* tracker;
+    animal_output_t* output;
+    const bool* allowed;
+    char** labels;
+    size_t n_labels;
+    float threshold;
+    float debug_threshold;
+    bool draw_boxes;
+    model_provider_t* model;
+    model_tensor_output_t* tensors;
+    size_t n_tensors;
+} frame_ctx_t;
+
+/**
+ * Adds the animals of one model run to dets, draws their boxes, and (troubleshooting) lists
+ * everything above the debug threshold in `seen`.
+ */
+static void collect_detections(const frame_ctx_t* c, const xform_t* xf, const char* tag,
+                               animal_det_t* dets, int* n, GString* seen) {
+    float* locations      = (float*)c->tensors[0].data;
+    float* classes        = (float*)c->tensors[1].data;
+    float* scores         = (float*)c->tensors[2].data;
+    float* nbr_detections = (float*)c->tensors[3].data;
     int number            = (int)nbr_detections[0];
     if (number > MAX_DETECTIONS)
         number = MAX_DETECTIONS;
 
-    animal_det_t dets[MAX_DETECTIONS];
-    int n = 0;
-
-    // Troubleshooting: everything the model sees above debug_threshold, animal or not.
-    GString* seen = debug_threshold > 0.0f ? g_string_new(NULL) : NULL;
-
-    if (draw_boxes)
-        bbox_clear(bbox);
     for (int i = 0; i < number; i++) {
         int label = (int)classes[i];
-        if (label < 0 || (size_t)label >= n_labels)
+        if (label < 0 || (size_t)label >= c->n_labels)
             continue;
-        bool animal = allowed[label];
-        bool debug  = seen != NULL && scores[i] >= debug_threshold;
+        bool animal = c->allowed[label];
+        bool debug  = seen != NULL && scores[i] >= c->debug_threshold;
         if (debug && seen->len < 200)
-            g_string_append_printf(seen, "%s%s %.2f%s", seen->len > 0 ? ", " : "", labels[label],
-                                   scores[i], animal ? " (animal)" : "");
-        if (draw_boxes && ((animal && scores[i] >= confidence_threshold) || debug)) {
-            bbox_coordinates_frame_normalized(bbox);
-            bbox_rectangle(bbox, locations[4 * i + 1], locations[4 * i], locations[4 * i + 3],
-                           locations[4 * i + 2]);
+            g_string_append_printf(seen, "%s%s%s %.2f%s", seen->len > 0 ? ", " : "", tag,
+                                   c->labels[label], scores[i], animal ? " (animal)" : "");
+        if (c->draw_boxes && ((animal && scores[i] >= c->threshold) || debug)) {
+            bbox_coordinates_frame_normalized(c->bbox);
+            bbox_rectangle(c->bbox, xf->x0 + locations[4 * i + 1] * xf->sx,
+                           xf->y0 + locations[4 * i] * xf->sy,
+                           xf->x0 + locations[4 * i + 3] * xf->sx,
+                           xf->y0 + locations[4 * i + 2] * xf->sy);
         }
-        if (animal)
-            dets[n++] = (animal_det_t){label, scores[i]};
+        if (animal && *n < MAX_DETECTIONS)
+            dets[(*n)++] = (animal_det_t){label, scores[i]};
+    }
+}
+
+/** Common end of a frame: simulation, overlay, the tracker and its events, troubleshooting log. */
+static void finish_frame(const frame_ctx_t* c, animal_det_t* dets, int n, GString* seen) {
+    if (g_atomic_int_get(&sim_frames) > 0 && n < MAX_DETECTIONS) {
+        g_atomic_int_add(&sim_frames, -1);
+        dets[n++] = (animal_det_t){g_atomic_int_get(&sim_label), 0.99f};
+    }
+    if (c->draw_boxes && !bbox_commit(c->bbox, 0u)) {
+        panic("Failed to commit box drawer");
     }
     if (seen != NULL) {
         static int64_t last_log_ms;
@@ -288,26 +314,102 @@ static void parse_and_postprocess_output_tensors(bbox_t* bbox,
         }
         g_string_free(seen, TRUE);
     }
-    if (g_atomic_int_get(&sim_frames) > 0 && n < MAX_DETECTIONS) {
-        g_atomic_int_add(&sim_frames, -1);
-        dets[n++] = (animal_det_t){g_atomic_int_get(&sim_label), 0.99f};
-    }
-    if (draw_boxes && !bbox_commit(bbox, 0u)) {
-        panic("Failed to commit box drawer");
-    }
 
     animal_event_t events[MAX_EVENTS];
-    int count = animal_tracker_update(tracker, dets, n, now_ms(), events, MAX_EVENTS);
+    int count = animal_tracker_update(c->tracker, dets, n, now_ms(), events, MAX_EVENTS);
     for (int e = 0; e < count; e++) {
         if (events[e].start)
-            syslog(LOG_NOTICE, "Animal start: %s (score %.2f)", labels[events[e].label],
+            syslog(LOG_NOTICE, "Animal start: %s (score %.2f)", c->labels[events[e].label],
                    events[e].best_score);
         else
             syslog(LOG_NOTICE, "Animal stop: %s (seen for %.1f s, best score %.2f)",
-                   labels[events[e].label], (double)events[e].duration_ms / 1000.0,
+                   c->labels[events[e].label], (double)events[e].duration_ms / 1000.0,
                    events[e].best_score);
-        animal_output_send(output, events[e].label, events[e].start);
+        animal_output_send(c->output, events[e].label, events[e].start);
     }
+}
+
+/** The whole image went through the model (classic mode). */
+static void process_full_frame(const frame_ctx_t* c) {
+    animal_det_t dets[MAX_DETECTIONS];
+    int n         = 0;
+    GString* seen = c->debug_threshold > 0.0f ? g_string_new(NULL) : NULL;
+    xform_t whole = {0.0, 0.0, 1.0, 1.0};
+
+    if (c->draw_boxes)
+        bbox_clear(c->bbox);
+    collect_detections(c, &whole, "", dets, &n, seen);
+    finish_frame(c, dets, n, seen);
+}
+
+typedef struct {
+    unsigned width;
+    unsigned height;
+    unsigned pitch;
+} geometry_t;
+
+typedef struct {
+    regions_t* regions;
+    int64_t hold_ms;
+    int max_regions;
+} region_cfg_t;
+
+#define REGION_IDLE_MS 190   // pretend a slow analysis: the stream drops to about 5 fps while idle
+#define REGION_MARGIN 0.3    // context around a box
+#define REGION_MIN_SIDE 64   // pixels
+#define MAX_REGIONS_CAP 8
+
+/** Region mode: look only at the places where the camera sees unclassified movement. Returns ms. */
+static unsigned process_region_frame(const frame_ctx_t* c, VdoBuffer* buf, const geometry_t* g,
+                                     const region_cfg_t* rc, unsigned* inferences) {
+    region_t regs[MAX_REGIONS_CAP];
+    int count = regions_current(rc->regions, now_ms(), rc->hold_ms, regs,
+                                rc->max_regions < MAX_REGIONS_CAP ? rc->max_regions : MAX_REGIONS_CAP);
+    animal_det_t dets[MAX_DETECTIONS];
+    int n         = 0;
+    GString* seen = c->debug_threshold > 0.0f ? g_string_new(NULL) : NULL;
+    unsigned elapsed = REGION_IDLE_MS;
+    *inferences      = 0;
+
+    if (c->draw_boxes)
+        bbox_clear(c->bbox);
+    const uint8_t* data = count > 0 ? vdo_buffer_get_data(buf) : NULL;
+    if (data != NULL) {
+        static uint8_t rgb[300 * 300 * 3];
+        img_info_t mi = model_provider_get_model_metadata(c->model);
+        if ((size_t)mi.width * mi.height * 3 > sizeof(rgb))
+            panic("Region mode supports models of at most 300x300, this one is %ux%u", mi.width,
+                  mi.height);
+        struct timeval t0, t1;
+        gettimeofday(&t0, NULL);
+        for (int r = 0; r < count; r++) {
+            crop_square_t sq = crop_square_for_box(regs[r].left, regs[r].top, regs[r].right,
+                                                   regs[r].bottom, g->width, g->height,
+                                                   REGION_MARGIN, REGION_MIN_SIDE);
+            crop_nv12_to_rgb(data, g->pitch, data + (size_t)g->pitch * g->height, g->pitch,
+                             g->width, g->height, sq, rgb, mi.width, mi.height);
+            if (!model_run_inference_rgb(c->model, rgb))
+                continue;  // no power right now, try the next frame
+            (*inferences)++;
+            for (size_t i = 0; i < c->n_tensors; i++) {
+                if (!model_get_tensor_output_info(c->model, i, &c->tensors[i]))
+                    panic("Failed to get output tensor info for %zu", i);
+            }
+            xform_t xf = {sq.x / g->width, sq.y / g->height, sq.side / g->width,
+                          sq.side / g->height};
+            char tag[8];
+            snprintf(tag, sizeof(tag), "[r%d] ", r + 1);
+            if (c->draw_boxes) {  // the region itself, so the stream shows what is examined
+                bbox_coordinates_frame_normalized(c->bbox);
+                bbox_rectangle(c->bbox, xf.x0, xf.y0, xf.x0 + xf.sx, xf.y0 + xf.sy);
+            }
+            collect_detections(c, &xf, tag, dets, &n, seen);
+        }
+        gettimeofday(&t1, NULL);
+        elapsed = (unsigned)(((t1.tv_sec - t0.tv_sec) * 1000) + ((t1.tv_usec - t0.tv_usec) / 1000));
+    }
+    finish_frame(c, dets, n, seen);
+    return elapsed;
 }
 
 static GHashTable* loaded_values;  // parameter name (as given by the camera) -> value at start
@@ -345,7 +447,8 @@ static gpointer parameter_thread(gpointer loop) {
 
 static void watch_parameters(AXParameter* handle) {
     static const char* const names[] = {"Threshold", "StartFrames", "HoldSec", "DrawBoxes",
-                                        "AnimalClasses", "DebugThreshold"};
+                                        "AnimalClasses", "DebugThreshold", "RegionMode", "MinBoxPct",
+                                        "RegionHoldSec", "MaxRegions"};
     loaded_values = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {
         gchar* value = NULL;
@@ -357,6 +460,35 @@ static void watch_parameters(AXParameter* handle) {
     }
     // The callbacks are dispatched by the default main context; the video loop below does not run it.
     g_thread_new("parameters", parameter_thread, g_main_loop_new(NULL, FALSE));
+}
+
+static unsigned long stat_runs, stat_sum_ms, stat_max_ms;
+
+/** One model run took `ms`; every 100 runs the statistics go to the log. */
+static void record_inference(unsigned ms) {
+    stat_runs++;
+    stat_sum_ms += ms;
+    if (ms > stat_max_ms)
+        stat_max_ms = ms;
+    if (stat_runs % 100 == 0) {
+        syslog(LOG_INFO, "Inference over the last 100 runs: avg %lu ms, max %lu ms",
+               stat_sum_ms / 100, stat_max_ms);
+        stat_sum_ms = 0;
+        stat_max_ms = 0;
+    }
+}
+
+static void on_scene_lost(void) {
+    running = 0;  // the ACAP framework respawns the app
+}
+
+/** Shutdown must not hang: a process that neither works nor exits is not restarted. */
+static gpointer shutdown_watchdog(gpointer user_data) {
+    (void)user_data;
+    g_usleep(8 * G_USEC_PER_SEC);
+    syslog(LOG_ERR, "Shutdown did not finish within 8 s, exiting");
+    _exit(EXIT_FAILURE);
+    return NULL;
 }
 
 /**
@@ -397,6 +529,19 @@ int main(int argc, char** argv) {
     const char* labels_file  = args.labels_file;
     size_t number_of_classes = 0;
     bool parse_tensors       = true;
+
+    regions_t* regions = NULL;
+    if (cfg.region_mode) {
+        regions = regions_new();
+        // Channel 1 is the camera's first video channel in the scene metadata.
+        if (!scene_feed_start(regions, 1, cfg.min_box_pct / 100.0, on_scene_lost)) {
+            syslog(LOG_ERR, "Cannot read the scene metadata, region mode is off");
+            scene_feed_stop();
+            regions_free(regions);
+            regions         = NULL;
+            cfg.region_mode = false;
+        }
+    }
 
     // Start by loading the model and get the model metadata
     size_t number_output_tensors = 0;
@@ -443,7 +588,10 @@ int main(int argc, char** argv) {
            channel_ar.w,
            channel_ar.h);
 
-    VdoResolution req_res    = {model_metadata.width, model_metadata.height};
+    // Region mode crops small regions out of a larger image: ask for the best the stream offers.
+    VdoResolution req_res = cfg.region_mode ? (VdoResolution){1920, 1080}
+                                            : (VdoResolution){model_metadata.width,
+                                                              model_metadata.height};
     VdoResolution chosen_req = req_res;
 
     // Get the a resolution with the same aspect ratio as the channel aspect ratio
@@ -470,6 +618,12 @@ int main(int argc, char** argv) {
     if (!vdo_stream_info) {
         return handle_vdo_failed(vdo_error);
     }
+    geometry_t geom = {vdo_map_get_uint32(vdo_stream_info, "width", 0),
+                       vdo_map_get_uint32(vdo_stream_info, "height", 0),
+                       vdo_map_get_uint32(vdo_stream_info, "pitch", 0)};
+    if (cfg.region_mode)
+        syslog(LOG_INFO, "Region mode: analysing regions of the %ux%u stream (pitch %u)", geom.width,
+               geom.height, geom.pitch);
     VdoPair32u aspect_ratio_def = {.w = 0u, .h = 0u};
     VdoPair32u stream_ar = vdo_map_get_pair32u(vdo_stream_info, "aspect_ratio", aspect_ratio_def);
     syslog(LOG_INFO, "Stream aspect ratio is %u:%u", stream_ar.w, stream_ar.h);
@@ -518,7 +672,19 @@ int main(int argc, char** argv) {
         sim_frames_to_feed = cfg.start_frames + 1;
         ax_parameter_register_callback(params, "Simulate", on_simulate, NULL, NULL);
     }
-    unsigned long frames = 0, inf_sum_ms = 0, inf_max_ms = 0;
+    frame_ctx_t ctx = {bbox,
+                       tracker,
+                       output,
+                       allowed,
+                       labels,
+                       number_of_classes,
+                       (float)cfg.threshold_pct / 100.0f,
+                       (float)cfg.debug_pct / 100.0f,
+                       cfg.draw_boxes,
+                       model_provider,
+                       tensor_outputs,
+                       number_output_tensors};
+    region_cfg_t rcfg = {regions, (int64_t)cfg.region_hold_s * 1000, cfg.max_regions};
 
     if (!vdo_stream_start(vdo_stream, &vdo_error)) {
         return handle_vdo_failed(vdo_error);
@@ -553,45 +719,40 @@ int main(int argc, char** argv) {
         if (!vdo_buf) {
             return handle_vdo_failed(vdo_error);
         }
-        gettimeofday(&start_ts, NULL);
-        // Run inference and preprocessing if needed
-        if (!model_run_inference(model_provider, vdo_buf)) {
-            if (!img_util_flush(vdo_stream, &vdo_buf, &vdo_error)) {
-                return handle_vdo_failed(vdo_error);
+        if (cfg.region_mode) {
+            unsigned runs = 0;
+            total_elapsed_ms = process_region_frame(&ctx, vdo_buf, &geom, &rcfg, &runs);
+            if (runs > 0)
+                record_inference(total_elapsed_ms / runs);
+        } else {
+            gettimeofday(&start_ts, NULL);
+            // Run inference and preprocessing if needed
+            if (!model_run_inference(model_provider, vdo_buf)) {
+                if (!img_util_flush(vdo_stream, &vdo_buf, &vdo_error)) {
+                    return handle_vdo_failed(vdo_error);
+                }
+                continue;
             }
-            continue;
-        }
-        gettimeofday(&end_ts, NULL);
-        inference_ms = (unsigned int)(((end_ts.tv_sec - start_ts.tv_sec) * 1000) +
-                                      ((end_ts.tv_usec - start_ts.tv_usec) / 1000));
-        frames++;
-        inf_sum_ms += inference_ms;
-        if (inference_ms > inf_max_ms)
-            inf_max_ms = inference_ms;
-        if (frames % 100 == 0) {
-            syslog(LOG_INFO, "Inference over the last 100 frames: avg %lu ms, max %lu ms",
-                   inf_sum_ms / 100, inf_max_ms);
-            inf_sum_ms = 0;
-            inf_max_ms = 0;
-        }
+            gettimeofday(&end_ts, NULL);
+            inference_ms = (unsigned int)(((end_ts.tv_sec - start_ts.tv_sec) * 1000) +
+                                          ((end_ts.tv_usec - start_ts.tv_usec) / 1000));
+            record_inference(inference_ms);
 
-        for (size_t i = 0; i < number_output_tensors; i++) {
-            if (!model_get_tensor_output_info(model_provider, i, &tensor_outputs[i])) {
-                panic("Failed to get output tensor info for %zu", i);
+            for (size_t i = 0; i < number_output_tensors; i++) {
+                if (!model_get_tensor_output_info(model_provider, i, &tensor_outputs[i])) {
+                    panic("Failed to get output tensor info for %zu", i);
+                }
             }
-        }
-        total_elapsed_ms = inference_ms;
+            total_elapsed_ms = inference_ms;
 
-        if (parse_tensors) {
-            struct timeval post_start, post_end;
-            gettimeofday(&post_start, NULL);
-            parse_and_postprocess_output_tensors(bbox, tracker, output, allowed, tensor_outputs,
-                                                 (float)cfg.threshold_pct / 100.0f, labels,
-                                                 number_of_classes, cfg.draw_boxes,
-                                                 (float)cfg.debug_pct / 100.0f);
-            gettimeofday(&post_end, NULL);
-            total_elapsed_ms += (unsigned int)(((post_end.tv_sec - post_start.tv_sec) * 1000) +
-                                               ((post_end.tv_usec - post_start.tv_usec) / 1000));
+            if (parse_tensors) {
+                struct timeval post_start, post_end;
+                gettimeofday(&post_start, NULL);
+                process_full_frame(&ctx);
+                gettimeofday(&post_end, NULL);
+                total_elapsed_ms += (unsigned int)(((post_end.tv_sec - post_start.tv_sec) * 1000) +
+                                                   ((post_end.tv_usec - post_start.tv_usec) / 1000));
+            }
         }
 
         // Check if the framerate from vdo should be changed
@@ -610,6 +771,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    g_thread_unref(g_thread_new("watchdog", shutdown_watchdog, NULL));
+    scene_feed_stop();
+    regions_free(regions);
     if (model_provider) {
         model_provider_destroy(model_provider);
     }

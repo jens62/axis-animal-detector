@@ -39,6 +39,10 @@ void config_load(AXParameter* handle, config_t* cfg, int fallback_threshold_pct)
     cfg->start_frames   = get_int(handle, "StartFrames", 3, 1, 1000);
     cfg->hold_s         = get_int(handle, "HoldSec", 5, 0, 3600);
     cfg->debug_pct      = get_int(handle, "DebugThreshold", 0, 0, 100);
+    cfg->region_mode    = get_bool(handle, "RegionMode");
+    cfg->min_box_pct    = get_int(handle, "MinBoxPct", 3, 1, 50);
+    cfg->region_hold_s  = get_int(handle, "RegionHoldSec", 3, 0, 60);
+    cfg->max_regions    = get_int(handle, "MaxRegions", 3, 1, 8);
     cfg->draw_boxes     = get_bool(handle, "DrawBoxes");
     cfg->animal_classes = get_string(handle, "AnimalClasses");
 }
@@ -52,6 +56,12 @@ void config_log(const config_t* cfg) {
     syslog(LOG_INFO, "Threshold %d %%, start after %d frames, gone after %d s, boxes %s",
            cfg->threshold_pct, cfg->start_frames, cfg->hold_s, cfg->draw_boxes ? "yes" : "no");
     syslog(LOG_INFO, "Animal classes: %s", cfg->animal_classes);
+    if (cfg->region_mode)
+        syslog(LOG_INFO, "Region mode: moving unclassified objects of at least %d %% size, up to %d "
+                         "regions per frame, kept for %d s",
+               cfg->min_box_pct, cfg->max_regions, cfg->region_hold_s);
+    else
+        syslog(LOG_INFO, "Region mode off: the whole image is analysed");
     if (cfg->debug_pct > 0)
         syslog(LOG_INFO, "Troubleshooting: logging everything seen above %d %%", cfg->debug_pct);
 }

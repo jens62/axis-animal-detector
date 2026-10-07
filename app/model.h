@@ -60,6 +60,14 @@ typedef struct model_provider {
 
 bool model_run_inference(model_provider_t* provider, VdoBuffer* vdo_buf);
 
+/**
+ * Runs the model on an interleaved RGB image of exactly the model's input size (width * height * 3
+ * bytes), skipping the preprocessing: for images that were cropped and scaled by the caller. Needs
+ * a provider that uses preprocessing (the stream is not the model's size). Returns false if no
+ * power was available, as model_run_inference().
+ */
+bool model_run_inference_rgb(model_provider_t* provider, const uint8_t* rgb);
+
 bool model_get_tensor_output_info(model_provider_t* provider,
                                   unsigned int tensor_output_index,
                                   model_tensor_output_t* tensor_output);

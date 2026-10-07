@@ -31,6 +31,25 @@ The log (`Apps -> Log`) shows the version and settings at start, `Animal start/s
 every 100 frames, the average and maximum inference time. Loading the model on the first start can
 take minutes.
 
+## Region mode (moving animals only)
+
+The model sees the whole image squeezed to 300x300 pixels, so a small animal is only a few pixels.
+With `RegionMode` on, the app instead reads the camera's scene metadata (`com.axis.scene.frame.v1`,
+through Device Data Hub, no manifest resource needed) and takes the boxes of moving objects that the
+camera could not classify (no `class`: not a person, not a vehicle). The tracker only follows moving
+things, so these are where a moving animal shows up. For each of the largest few boxes
+(`MaxRegions`) the app crops a square with some margin out of a 1920x1080 stream, scales it to
+300x300 in software, and runs the model on it. The existing start/stop logic does the rest.
+
+* Boxes smaller than `MinBoxPct` (sqrt(width x height), percent of the image) are ignored: the
+  tracker reports tiny boxes at the image edge all the time.
+* The last regions stay valid for `RegionHoldSec`, because the camera's tracks flicker.
+* With nothing moving the model does not run at all and the stream drops to about 5 fps.
+* Animals that do not move are not detected in this mode, and neither are animals the camera does
+  not track. The stream shows the examined regions (and the detections) when `DrawBoxes` is on.
+* To see what the model makes of each region, set `DebugThreshold` (e.g. 20): `Seen: [r1] person
+  0.31, [r2] couch 0.24` lists the results per region.
+
 ## Settings and test page
 
 Open the app's settings page (Apps -> Animal Detector -> Open). It has the settings and one
@@ -44,6 +63,10 @@ the test buttons of Axis' audio detection.
 | `HoldSec` | 5 | Seconds without the animal until it is reported as gone |
 | `AnimalClasses` | bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe | Label names of the COCO label file that count as animals |
 | `DrawBoxes` | yes | Draw boxes around animals in the video stream |
+| `RegionMode` | no | Only analyse regions of unclassified movement (see above) |
+| `MinBoxPct` | 3 | Smallest region, sqrt(width x height) in percent of the image |
+| `RegionHoldSec` | 3 | Keep looking this long after the last region |
+| `MaxRegions` | 3 | Regions per frame, largest first |
 | `DebugThreshold` | 0 | Troubleshooting, 0 = off. Logs `Seen: …` (at most once a second) with everything the model sees at this score (percent) or more, animals or not, and draws boxes for all of it |
 
 ## Build

@@ -36,6 +36,17 @@
             sees at this score or more, animal or not, and the video stream shows boxes for all of them.</span></label>
       </fieldset>
 
+      <fieldset>
+        <legend>Moving animals only (regions)</legend>
+        <label class="inline"><input data-param="RegionMode" type="checkbox"> Only look where the camera sees unclassified movement
+          <span class="hint">(the camera's tracker reports moving objects that are not people or vehicles; the detector crops those places from a larger image
+            and analyses them. Still animals are not detected in this mode)</span></label>
+        <label>Smallest region (% of the image) <input data-param="MinBoxPct" type="number" min="1" max="50">
+          <span class="hint">sqrt(width x height) of the camera's box; smaller boxes are tracker noise</span></label>
+        <label>Keep looking for (s) after the last region <input data-param="RegionHoldSec" type="number" min="0" max="60"></label>
+        <label>Regions per frame (largest first) <input data-param="MaxRegions" type="number" min="1" max="8"></label>
+      </fieldset>
+
       <div class="actions">
         <button type="submit">Save</button>
         <button type="button" id="reload">Reload</button>
