@@ -15,7 +15,10 @@
  */
 
 /**
- * - object_detection -
+ * - animal_detector -
+ *
+ * Based on the object_detection example of Axis Communications' acap-native-sdk-examples.
+ * Reports animals as start/stop events instead of a message per frame.
  *
  * This application loads a larod model which takes an image as input and
  * outputs values corresponding to the class, score and location of detected
@@ -47,8 +50,11 @@
 #include <syslog.h>
 #include <unistd.h>
 
+#include "animal_events.h"
+#include "animal_output.h"
 #include "argparse.h"
 #include "channel_util.h"
+#include "config.h"
 #include "img_util.h"
 #include "labelparse.h"
 #include "model.h"
@@ -57,10 +63,16 @@
 #include "vdo-frame.h"
 #include "vdo-types.h"
 #include <bbox.h>
+#include <glib.h>
 
 #include <math.h>
 #include <poll.h>
+#include <signal.h>
 #include <unistd.h>
+
+#ifndef APP_VERSION
+#define APP_VERSION "unknown"
+#endif
 
 volatile sig_atomic_t running = 1;
 
@@ -154,74 +166,137 @@ static bbox_t* setup_bbox(uint32_t channel) {
     return bbox;
 }
 
-static bool parse_and_postprocess_output_tensors(bbox_t* bbox,
+/* Test buttons on the settings page: "<class> <nonce>" written to the Simulate parameter. */
+static char** sim_labels;
+static size_t sim_n_labels;
+static const bool* sim_allowed;
+static int sim_frames_to_feed;
+static volatile gint sim_label  = -1;
+static volatile gint sim_frames = 0;
+
+static void on_simulate(const gchar* name, const gchar* value, gpointer user_data) {
+    (void)name;
+    (void)user_data;
+    char** parts = g_strsplit(value, " ", 2);
+    if (parts[0] != NULL && parts[0][0] != '\0') {
+        for (size_t i = 0; i < sim_n_labels; i++) {
+            if (sim_allowed[i] && g_ascii_strcasecmp(sim_labels[i], parts[0]) == 0) {
+                syslog(LOG_NOTICE, "Simulating %s", sim_labels[i]);
+                g_atomic_int_set(&sim_label, (gint)i);
+                g_atomic_int_set(&sim_frames, sim_frames_to_feed);
+                break;
+            }
+        }
+    }
+    g_strfreev(parts);
+}
+
+#define MAX_DETECTIONS 100
+#define MAX_EVENTS 16
+
+static int64_t now_ms(void) {
+    return g_get_monotonic_time() / 1000;
+}
+
+/** Marks the labels listed in the comma separated `names` as animals. Returns how many matched. */
+static int mark_animals(bool* allowed, char** labels, size_t n_labels, const char* names) {
+    int matched = 0;
+    char** list = g_strsplit(names, ",", -1);
+    for (char** name = list; *name != NULL; name++) {
+        g_strstrip(*name);
+        if (**name == '\0')
+            continue;
+        bool found = false;
+        for (size_t i = 0; i < n_labels; i++) {
+            if (g_ascii_strcasecmp(labels[i], *name) == 0) {
+                allowed[i] = true;
+                found      = true;
+                matched++;
+            }
+        }
+        if (!found)
+            syslog(LOG_WARNING, "Animal class '%s' is not in the label file", *name);
+    }
+    g_strfreev(list);
+    return matched;
+}
+
+static void parse_and_postprocess_output_tensors(bbox_t* bbox,
+                                                 animal_tracker_t* tracker,
+                                                 animal_output_t* output,
+                                                 const bool* allowed,
                                                  model_tensor_output_t* tensor_outputs,
                                                  float confidence_threshold,
                                                  char** labels,
-                                                 unsigned int* post_processing_ms) {
-    box* boxes = NULL;
-    struct timeval start_ts, end_ts;
-
+                                                 size_t n_labels,
+                                                 bool draw_boxes) {
     // From here this is different dependent on model
-    float* locations = (float*)tensor_outputs[0].data;
-    float* classes   = (float*)tensor_outputs[1].data;
+    float* locations      = (float*)tensor_outputs[0].data;
+    float* classes        = (float*)tensor_outputs[1].data;
+    float* scores         = (float*)tensor_outputs[2].data;
+    float* nbr_detections = (float*)tensor_outputs[3].data;
+    int number            = (int)nbr_detections[0];
+    if (number > MAX_DETECTIONS)
+        number = MAX_DETECTIONS;
 
-    bbox_clear(bbox);
+    animal_det_t dets[MAX_DETECTIONS];
+    int n = 0;
 
-    gettimeofday(&start_ts, NULL);
-
-    float* scores            = (float*)tensor_outputs[2].data;
-    float* nbr_detections    = (float*)tensor_outputs[3].data;
-    int number_of_detections = (int)nbr_detections[0];
-    if (number_of_detections == 0) {
-        syslog(LOG_INFO, "No object is detected");
-        return true;
-    }
-    boxes = (box*)malloc(sizeof(box) * number_of_detections);
-    for (int i = 0; i < number_of_detections; i++) {
-        boxes[i].y_min = locations[4 * i];
-        boxes[i].x_min = locations[4 * i + 1];
-        boxes[i].y_max = locations[4 * i + 2];
-        boxes[i].x_max = locations[4 * i + 3];
-        boxes[i].score = scores[i];
-        boxes[i].label = classes[i];
-    }
-    gettimeofday(&end_ts, NULL);
-
-    *post_processing_ms = (unsigned int)(((end_ts.tv_sec - start_ts.tv_sec) * 1000) +
-                                         ((end_ts.tv_usec - start_ts.tv_usec) / 1000));
-    if (*post_processing_ms != 0) {
-        syslog(LOG_INFO, "Postprocessing in %u ms", *post_processing_ms);
-    }
-
-    for (int i = 0; i < number_of_detections; i++) {
-        if (boxes[i].score >= confidence_threshold) {
-            float top    = boxes[i].y_min;
-            float bottom = boxes[i].y_max;
-            float right  = boxes[i].x_max;
-            float left   = boxes[i].x_min;
-
-            syslog(LOG_INFO,
-                   "Object %d: Classes: %s - Scores: %f - Locations: [%f,%f,%f,%f]",
-                   i,
-                   labels[boxes[i].label],
-                   boxes[i].score,
-                   left,
-                   top,
-                   right,
-                   bottom);
+    if (draw_boxes)
+        bbox_clear(bbox);
+    for (int i = 0; i < number; i++) {
+        int label = (int)classes[i];
+        if (label < 0 || (size_t)label >= n_labels || !allowed[label])
+            continue;
+        dets[n++] = (animal_det_t){label, scores[i]};
+        if (draw_boxes && scores[i] >= confidence_threshold) {
             bbox_coordinates_frame_normalized(bbox);
-            bbox_rectangle(bbox, left, top, right, bottom);
+            bbox_rectangle(bbox, locations[4 * i + 1], locations[4 * i], locations[4 * i + 3],
+                           locations[4 * i + 2]);
         }
     }
-
-    if (!bbox_commit(bbox, 0u)) {
+    if (g_atomic_int_get(&sim_frames) > 0 && n < MAX_DETECTIONS) {
+        g_atomic_int_add(&sim_frames, -1);
+        dets[n++] = (animal_det_t){g_atomic_int_get(&sim_label), 0.99f};
+    }
+    if (draw_boxes && !bbox_commit(bbox, 0u)) {
         panic("Failed to commit box drawer");
     }
-    if (boxes) {
-        free(boxes);
+
+    animal_event_t events[MAX_EVENTS];
+    int count = animal_tracker_update(tracker, dets, n, now_ms(), events, MAX_EVENTS);
+    for (int e = 0; e < count; e++) {
+        if (events[e].start)
+            syslog(LOG_NOTICE, "Animal start: %s (score %.2f)", labels[events[e].label],
+                   events[e].best_score);
+        else
+            syslog(LOG_NOTICE, "Animal stop: %s (seen for %.1f s, best score %.2f)",
+                   labels[events[e].label], (double)events[e].duration_ms / 1000.0,
+                   events[e].best_score);
+        animal_output_send(output, events[e].label, events[e].start);
     }
-    return true;
+}
+
+/** Changing a setting ends the loop; the ACAP framework respawns the app (runMode respawn). */
+static void on_parameter_changed(const gchar* name, const gchar* value, gpointer user_data) {
+    (void)value;
+    (void)user_data;
+    syslog(LOG_INFO, "Parameter %s changed, restarting", name);
+    running = 0;
+}
+
+static gpointer parameter_thread(gpointer loop) {
+    g_main_loop_run(loop);
+    return NULL;
+}
+
+static void watch_parameters(AXParameter* handle) {
+    static const char* const names[] = {"Threshold", "StartFrames", "HoldSec", "DrawBoxes",
+                                        "AnimalClasses"};
+    for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
+        ax_parameter_register_callback(handle, names[i], on_parameter_changed, NULL, NULL);
+    // The callbacks are dispatched by the default main context; the video loop below does not run it.
+    g_thread_new("parameters", parameter_thread, g_main_loop_new(NULL, FALSE));
 }
 
 /**
@@ -241,13 +316,25 @@ int main(int argc, char** argv) {
     signal(SIGTERM, shutdown);
     signal(SIGINT, shutdown);
 
+    openlog(APP_NAME, LOG_PID, LOG_USER);
+    syslog(LOG_INFO, "%s %s started", APP_NAME, APP_VERSION);
+
     args_t args;
     parse_args(argc, argv, &args);
+
+    GError* param_error = NULL;
+    AXParameter* params = ax_parameter_new(APP_NAME, &param_error);
+    if (params == NULL)
+        panic("Cannot open parameters: %s", param_error->message);
+    config_t cfg;
+    config_load(params, &cfg, (int)args.threshold);
+    config_log(&cfg);
+    syslog(LOG_INFO, "Model %s, device %s", args.model_file, args.device_name);
+    watch_parameters(params);
 
     char* device_name        = args.device_name;
     char* model_file         = args.model_file;
     const char* labels_file  = args.labels_file;
-    const int threshold      = args.threshold;
     size_t number_of_classes = 0;
     bool parse_tensors       = true;
 
@@ -348,10 +435,29 @@ int main(int argc, char** argv) {
                                    // entries points into the large label_file_data buffer.
     char* label_file_data = NULL;  // Buffer holding the complete collection of label strings.
 
+    animal_tracker_t* tracker = NULL;
+    bool* allowed             = NULL;
     if (parse_tensors) {
         parse_labels(&labels, &label_file_data, labels_file, &number_of_classes);
-        bbox = setup_bbox(vdo_channel);
+        if (cfg.draw_boxes)
+            bbox = setup_bbox(vdo_channel);
+        allowed     = calloc(number_of_classes, sizeof(bool));
+        int matched = mark_animals(allowed, labels, number_of_classes, cfg.animal_classes);
+        syslog(LOG_INFO, "%d of %zu labels are animals", matched, number_of_classes);
+        tracker = animal_tracker_new(allowed, (int)number_of_classes,
+                                     (float)cfg.threshold_pct / 100.0f, cfg.start_frames,
+                                     cfg.hold_s * 1000);
     }
+    animal_output_t* output = NULL;
+    if (tracker != NULL) {
+        output             = animal_output_new(labels, allowed, number_of_classes);
+        sim_labels         = labels;
+        sim_n_labels       = number_of_classes;
+        sim_allowed        = allowed;
+        sim_frames_to_feed = cfg.start_frames + 1;
+        ax_parameter_register_callback(params, "Simulate", on_simulate, NULL, NULL);
+    }
+    unsigned long frames = 0, inf_sum_ms = 0, inf_max_ms = 0;
 
     if (!vdo_stream_start(vdo_stream, &vdo_error)) {
         return handle_vdo_failed(vdo_error);
@@ -397,7 +503,16 @@ int main(int argc, char** argv) {
         gettimeofday(&end_ts, NULL);
         inference_ms = (unsigned int)(((end_ts.tv_sec - start_ts.tv_sec) * 1000) +
                                       ((end_ts.tv_usec - start_ts.tv_usec) / 1000));
-        syslog(LOG_INFO, "Ran inference for %u ms", inference_ms);
+        frames++;
+        inf_sum_ms += inference_ms;
+        if (inference_ms > inf_max_ms)
+            inf_max_ms = inference_ms;
+        if (frames % 100 == 0) {
+            syslog(LOG_INFO, "Inference over the last 100 frames: avg %lu ms, max %lu ms",
+                   inf_sum_ms / 100, inf_max_ms);
+            inf_sum_ms = 0;
+            inf_max_ms = 0;
+        }
 
         for (size_t i = 0; i < number_output_tensors; i++) {
             if (!model_get_tensor_output_info(model_provider, i, &tensor_outputs[i])) {
@@ -407,14 +522,14 @@ int main(int argc, char** argv) {
         total_elapsed_ms = inference_ms;
 
         if (parse_tensors) {
-            unsigned int post_processing_ms = 0;
-            float confidence_threshold      = (float)(threshold / 100.0);
-            parse_and_postprocess_output_tensors(bbox,
-                                                 tensor_outputs,
-                                                 confidence_threshold,
-                                                 labels,
-                                                 &post_processing_ms);
-            total_elapsed_ms += post_processing_ms;
+            struct timeval post_start, post_end;
+            gettimeofday(&post_start, NULL);
+            parse_and_postprocess_output_tensors(bbox, tracker, output, allowed, tensor_outputs,
+                                                 (float)cfg.threshold_pct / 100.0f, labels,
+                                                 number_of_classes, cfg.draw_boxes);
+            gettimeofday(&post_end, NULL);
+            total_elapsed_ms += (unsigned int)(((post_end.tv_sec - post_start.tv_sec) * 1000) +
+                                               ((post_end.tv_usec - post_start.tv_usec) / 1000));
         }
 
         // Check if the framerate from vdo should be changed
@@ -444,9 +559,13 @@ int main(int argc, char** argv) {
     if (label_file_data) {
         free(label_file_data);
     }
-    if (parse_tensors) {
+    if (bbox) {
         bbox_destroy(bbox);
     }
+    animal_output_free(output);
+    animal_tracker_free(tracker);
+    free(allowed);
+    config_free(&cfg);
 
     syslog(LOG_INFO, "Exit %s", argv[0]);
     return 0;

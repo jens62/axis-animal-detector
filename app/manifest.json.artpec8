@@ -13,17 +13,33 @@
     },
     "acapPackageConf": {
         "setup": {
-            "friendlyName": "object_detection_artpec8",
-            "appName": "object_detection",
-            "vendor": "Axis Communications",
+            "friendlyName": "Animal Detector",
+            "appName": "animal_detector",
+            "vendor": "jens62",
             "vendorId": "1234567890",
-            "runOptions": "/usr/local/packages/object_detection/model/converted_model.tflite 50 /usr/local/packages/object_detection/label/labels.txt -d axis-a8-dlpu-tflite",
-            "vendorUrl": "https://www.axis.com",
-            "runMode": "never",
-            "version": "1.0.0",
+            "runOptions": "/usr/local/packages/animal_detector/model/converted_model.tflite 50 /usr/local/packages/animal_detector/label/labels.txt -d axis-a8-dlpu-tflite",
+            "vendorUrl": "https://github.com/jens62/axis-animal-detector",
+            "runMode": "respawn",
+            "version": "0.1.0",
             "compatibleOsVersions": [
                 {
+                    "min": "12.2",
                     "max": "13"
+                }
+            ]
+        },
+        "configuration": {
+            "settingPage": "index.html",
+            "paramConfig": [
+                { "name": "Threshold", "default": "50", "type": "string" },
+                { "name": "StartFrames", "default": "3", "type": "string" },
+                { "name": "HoldSec", "default": "5", "type": "string" },
+                { "name": "DrawBoxes", "default": "yes", "type": "bool:no,yes" },
+                { "name": "Simulate", "default": "", "type": "string" },
+                {
+                    "name": "AnimalClasses",
+                    "default": "bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe",
+                    "type": "string"
                 }
             ]
         }

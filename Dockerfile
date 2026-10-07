@@ -52,6 +52,7 @@ WORKDIR /opt/app
 COPY ./app .
 
 RUN cp /opt/app/manifest.json.${CHIP} /opt/app/manifest.json && \
+    jq '[.acapPackageConf.configuration.paramConfig[] | {(.name): .default}] | add' manifest.json > html/defaults.json && \
     . /opt/axis/acapsdk/environment-setup* && \
     if [ "$CHIP" = artpec8 ] || [ "$CHIP" = artpec9 ] || [ "$CHIP" = cpu ] || [ "$CHIP" = edgetpu ]; then \
         acap-build . -a 'label/labels.txt' \

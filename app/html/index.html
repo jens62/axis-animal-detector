@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Animal Detector</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>Animal Detector</h1>
+    <p class="hint">Detects animals on the camera and reports when one appears and when it is gone
+      (camera event <code>tnsaxis:AnimalDetector/&lt;Class&gt;</code>, data <code>Detected</code>).
+      Saving restarts the application.</p>
+
+    <fieldset id="simulate">
+      <legend>Test</legend>
+      <p class="hint">Simulates an animal: the real event is sent (see Events, rules or MQTT).
+        "Detected" becomes true right away and false again after the hold time.</p>
+      <div id="sim-buttons"></div>
+    </fieldset>
+
+    <form id="form" autocomplete="off">
+      <fieldset>
+        <legend>Detection</legend>
+        <label>Minimum score (%) <input data-param="Threshold" type="number" min="1" max="100"></label>
+        <label>Report an animal after (frames in a row) <input data-param="StartFrames" type="number" min="1">
+          <span class="hint">suppresses single-frame false positives</span></label>
+        <label>Animal is gone after (s) <input data-param="HoldSec" type="number" min="0">
+          <span class="hint">short drop-outs of the detector do not end the episode</span></label>
+        <label>Animal classes (comma separated, names from the COCO label file)
+          <textarea data-param="AnimalClasses" rows="2"></textarea></label>
+        <label class="inline"><input data-param="DrawBoxes" type="checkbox"> Draw boxes around animals in the video stream</label>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit">Save</button>
+        <button type="button" id="reload">Reload</button>
+        <button type="button" id="reset">Reset to defaults</button>
+        <button type="button" id="export">Export</button>
+        <button type="button" id="import">Import</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <span id="status" role="status"></span>
+      </div>
+    </form>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
