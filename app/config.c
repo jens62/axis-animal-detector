@@ -38,6 +38,7 @@ void config_load(AXParameter* handle, config_t* cfg, int fallback_threshold_pct)
     cfg->threshold_pct  = get_int(handle, "Threshold", fallback_threshold_pct, 1, 100);
     cfg->start_frames   = get_int(handle, "StartFrames", 3, 1, 1000);
     cfg->hold_s         = get_int(handle, "HoldSec", 5, 0, 3600);
+    cfg->debug_pct      = get_int(handle, "DebugThreshold", 0, 0, 100);
     cfg->draw_boxes     = get_bool(handle, "DrawBoxes");
     cfg->animal_classes = get_string(handle, "AnimalClasses");
 }
@@ -51,4 +52,6 @@ void config_log(const config_t* cfg) {
     syslog(LOG_INFO, "Threshold %d %%, start after %d frames, gone after %d s, boxes %s",
            cfg->threshold_pct, cfg->start_frames, cfg->hold_s, cfg->draw_boxes ? "yes" : "no");
     syslog(LOG_INFO, "Animal classes: %s", cfg->animal_classes);
+    if (cfg->debug_pct > 0)
+        syslog(LOG_INFO, "Troubleshooting: logging everything seen above %d %%", cfg->debug_pct);
 }

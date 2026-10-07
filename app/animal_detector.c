@@ -244,7 +244,8 @@ static void parse_and_postprocess_output_tensors(bbox_t* bbox,
                                                  float confidence_threshold,
                                                  char** labels,
                                                  size_t n_labels,
-                                                 bool draw_boxes) {
+                                                 bool draw_boxes,
+                                                 float debug_threshold) {
     // From here this is different dependent on model
     float* locations      = (float*)tensor_outputs[0].data;
     float* classes        = (float*)tensor_outputs[1].data;
@@ -257,18 +258,35 @@ static void parse_and_postprocess_output_tensors(bbox_t* bbox,
     animal_det_t dets[MAX_DETECTIONS];
     int n = 0;
 
+    // Troubleshooting: everything the model sees above debug_threshold, animal or not.
+    GString* seen = debug_threshold > 0.0f ? g_string_new(NULL) : NULL;
+
     if (draw_boxes)
         bbox_clear(bbox);
     for (int i = 0; i < number; i++) {
         int label = (int)classes[i];
-        if (label < 0 || (size_t)label >= n_labels || !allowed[label])
+        if (label < 0 || (size_t)label >= n_labels)
             continue;
-        dets[n++] = (animal_det_t){label, scores[i]};
-        if (draw_boxes && scores[i] >= confidence_threshold) {
+        bool animal = allowed[label];
+        bool debug  = seen != NULL && scores[i] >= debug_threshold;
+        if (debug && seen->len < 200)
+            g_string_append_printf(seen, "%s%s %.2f%s", seen->len > 0 ? ", " : "", labels[label],
+                                   scores[i], animal ? " (animal)" : "");
+        if (draw_boxes && ((animal && scores[i] >= confidence_threshold) || debug)) {
             bbox_coordinates_frame_normalized(bbox);
             bbox_rectangle(bbox, locations[4 * i + 1], locations[4 * i], locations[4 * i + 3],
                            locations[4 * i + 2]);
         }
+        if (animal)
+            dets[n++] = (animal_det_t){label, scores[i]};
+    }
+    if (seen != NULL) {
+        static int64_t last_log_ms;
+        if (seen->len > 0 && now_ms() - last_log_ms >= 1000) {
+            syslog(LOG_INFO, "Seen: %s", seen->str);
+            last_log_ms = now_ms();
+        }
+        g_string_free(seen, TRUE);
     }
     if (g_atomic_int_get(&sim_frames) > 0 && n < MAX_DETECTIONS) {
         g_atomic_int_add(&sim_frames, -1);
@@ -327,7 +345,7 @@ static gpointer parameter_thread(gpointer loop) {
 
 static void watch_parameters(AXParameter* handle) {
     static const char* const names[] = {"Threshold", "StartFrames", "HoldSec", "DrawBoxes",
-                                        "AnimalClasses"};
+                                        "AnimalClasses", "DebugThreshold"};
     loaded_values = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {
         gchar* value = NULL;
@@ -569,7 +587,8 @@ int main(int argc, char** argv) {
             gettimeofday(&post_start, NULL);
             parse_and_postprocess_output_tensors(bbox, tracker, output, allowed, tensor_outputs,
                                                  (float)cfg.threshold_pct / 100.0f, labels,
-                                                 number_of_classes, cfg.draw_boxes);
+                                                 number_of_classes, cfg.draw_boxes,
+                                                 (float)cfg.debug_pct / 100.0f);
             gettimeofday(&post_end, NULL);
             total_elapsed_ms += (unsigned int)(((post_end.tv_sec - post_start.tv_sec) * 1000) +
                                                ((post_end.tv_usec - post_start.tv_usec) / 1000));

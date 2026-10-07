@@ -101,7 +101,7 @@ function validate(changes) {
     const n = Number(changes[key]);
     return Number.isFinite(n) && n >= min && n <= max ? null : key + " must be a number from " + min + " to " + max;
   };
-  return num("Threshold", 1, 100) || num("StartFrames", 1, 1000) || num("HoldSec", 0, 3600);
+  return num("Threshold", 1, 100) || num("StartFrames", 1, 1000) || num("HoldSec", 0, 3600) || num("DebugThreshold", 0, 100);
 }
 
 async function save(event) {

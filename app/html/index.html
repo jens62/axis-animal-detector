@@ -31,6 +31,9 @@
         <label>Animal classes (comma separated, names from the COCO label file)
           <textarea data-param="AnimalClasses" rows="2"></textarea></label>
         <label class="inline"><input data-param="DrawBoxes" type="checkbox"> Draw boxes around animals in the video stream</label>
+        <label>Troubleshooting: log everything seen above (%) <input data-param="DebugThreshold" type="number" min="0" max="100">
+          <span class="hint">0 = off. Otherwise the log gets a line "Seen: …" once a second with every object the model
+            sees at this score or more, animal or not, and the video stream shows boxes for all of them.</span></label>
       </fieldset>
 
       <div class="actions">

@@ -44,6 +44,7 @@ the test buttons of Axis' audio detection.
 | `HoldSec` | 5 | Seconds without the animal until it is reported as gone |
 | `AnimalClasses` | bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe | Label names of the COCO label file that count as animals |
 | `DrawBoxes` | yes | Draw boxes around animals in the video stream |
+| `DebugThreshold` | 0 | Troubleshooting, 0 = off. Logs `Seen: …` (at most once a second) with everything the model sees at this score (percent) or more, animals or not, and draws boxes for all of it |
 
 ## Build
 
