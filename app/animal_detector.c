@@ -174,6 +174,19 @@ static int sim_frames_to_feed;
 static volatile gint sim_label  = -1;
 static volatile gint sim_frames = 0;
 
+static AXParameter* sim_params;
+
+/** Forget the request, so that a later bulk write of all parameters can not replay it. */
+static gboolean clear_simulate(gpointer user_data) {
+    (void)user_data;
+    GError* error = NULL;
+    if (!ax_parameter_set(sim_params, "Simulate", "", TRUE, &error)) {
+        syslog(LOG_WARNING, "Cannot clear Simulate: %s", error->message);
+        g_clear_error(&error);
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static void on_simulate(const gchar* name, const gchar* value, gpointer user_data) {
     (void)name;
     (void)user_data;
@@ -184,6 +197,7 @@ static void on_simulate(const gchar* name, const gchar* value, gpointer user_dat
                 syslog(LOG_NOTICE, "Simulating %s", sim_labels[i]);
                 g_atomic_int_set(&sim_label, (gint)i);
                 g_atomic_int_set(&sim_frames, sim_frames_to_feed);
+                g_idle_add(clear_simulate, NULL);
                 break;
             }
         }
@@ -454,6 +468,7 @@ int main(int argc, char** argv) {
         sim_labels         = labels;
         sim_n_labels       = number_of_classes;
         sim_allowed        = allowed;
+        sim_params         = params;
         sim_frames_to_feed = cfg.start_frames + 1;
         ax_parameter_register_callback(params, "Simulate", on_simulate, NULL, NULL);
     }
