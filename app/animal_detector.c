@@ -47,6 +47,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <string.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -291,11 +292,31 @@ static void parse_and_postprocess_output_tensors(bbox_t* bbox,
     }
 }
 
-/** Changing a setting ends the loop; the ACAP framework respawns the app (runMode respawn). */
+static GHashTable* loaded_values;  // parameter name (as given by the camera) -> value at start
+
+/** The camera's name is "root.Animal_detector.Threshold"; ours is the last part. */
+static const char* short_name(const char* name) {
+    const char* dot = strrchr(name, '.');
+    return dot != NULL ? dot + 1 : name;
+}
+
+/**
+ * Changing a setting ends the loop; the ACAP framework respawns the app (runMode respawn).
+ * A notification that carries the value we already run with is ignored (the camera sends such
+ * notifications for all parameters of the group at once, e.g. after the first write).
+ */
 static void on_parameter_changed(const gchar* name, const gchar* value, gpointer user_data) {
-    (void)value;
     (void)user_data;
-    syslog(LOG_INFO, "Parameter %s changed, restarting", name);
+    const char* key = short_name(name);
+    const char* old = g_hash_table_lookup(loaded_values, key);
+    char* now       = g_strstrip(g_strdup(value != NULL ? value : ""));
+    bool same       = old != NULL && strcmp(old, now) == 0;
+    g_free(now);
+    if (same) {
+        syslog(LOG_INFO, "Parameter %s notified with the value in use, ignored", key);
+        return;
+    }
+    syslog(LOG_INFO, "Parameter %s changed, restarting", key);
     running = 0;
 }
 
@@ -307,8 +328,15 @@ static gpointer parameter_thread(gpointer loop) {
 static void watch_parameters(AXParameter* handle) {
     static const char* const names[] = {"Threshold", "StartFrames", "HoldSec", "DrawBoxes",
                                         "AnimalClasses"};
-    for (size_t i = 0; i < G_N_ELEMENTS(names); i++)
+    loaded_values = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {
+        gchar* value = NULL;
+        if (ax_parameter_get(handle, names[i], &value, NULL)) {
+            g_strstrip(value);
+            g_hash_table_insert(loaded_values, g_strdup(names[i]), value);
+        }
         ax_parameter_register_callback(handle, names[i], on_parameter_changed, NULL, NULL);
+    }
     // The callbacks are dispatched by the default main context; the video loop below does not run it.
     g_thread_new("parameters", parameter_thread, g_main_loop_new(NULL, FALSE));
 }
