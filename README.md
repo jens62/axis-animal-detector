@@ -87,6 +87,7 @@ the test buttons of Axis' audio detection.
 | `OverlayChannels` | 0,1 | Video channels (views) the boxes are drawn on: a stream or recording only shows the boxes of its own view (0 = whole sensor, 1 = "View Area 1"). Channels that do not exist are skipped |
 | `DrawBoxes` | yes | Draw boxes on the video stream: yellow = the region that is analysed (region mode), red = an animal at or above `Threshold` (kept for `HoldSec` after the last sighting), green = other objects (only with `DebugThreshold`). The overlay cannot show text, species and score are in the log and the events |
 | `RegionMode` | no | Only analyse regions of unclassified movement (see above) |
+| `MinAnimalPct` | 0 | Smallest animal, sqrt(width x height) of the detected box in percent of the image; 0 = off. Smaller detections are ignored (with `DebugThreshold` the log marks them "(animal, too small)"). Against leaves and spots moved by the wind |
 | `MinBoxPct` | 3 | Smallest region, sqrt(width x height) in percent of the image |
 | `RegionHoldSec` | 3 | Keep looking this long after the last region |
 | `MaxRegions` | 3 | Regions per frame, largest first |

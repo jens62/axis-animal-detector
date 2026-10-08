@@ -28,6 +28,10 @@
           <span class="hint">suppresses single-frame false positives</span></label>
         <label>Animal is gone after (s) <input data-param="HoldSec" type="number" min="0">
           <span class="hint">short drop-outs of the detector do not end the episode</span></label>
+        <label>Smallest animal (% of the image) <input data-param="MinAnimalPct" type="number" min="0" max="50">
+          <span class="hint">0 = off. A detection whose box is smaller than this (sqrt(width x height)) is ignored: leaves, spots
+            and other small things the wind moves. A distant animal is small as well, so do not set it too high.
+            The log of the troubleshooting setting marks such hits "(animal, too small)".</span></label>
         <label>Animal classes (comma separated, names from the COCO label file)
           <textarea data-param="AnimalClasses" rows="2"></textarea></label>
         <label class="inline"><input data-param="DrawBoxes" type="checkbox"> Draw boxes around animals in the video stream</label>

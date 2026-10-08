@@ -38,6 +38,13 @@ static void test_parse(void) {
     assert(regions_parse_frame(old, strlen(old), 0.03, out, 4) == 0);
 }
 
+static void test_box_size(void) {
+    assert(fabs(regions_box_size(0.1, 0.1, 0.3, 0.2) - sqrt(0.2 * 0.1)) < 1e-12);
+    assert(regions_box_size(0.3, 0.1, 0.1, 0.2) == 0.0);   // negative width
+    assert(regions_box_size(0.1, 0.2, 0.3, 0.2) == 0.0);   // no height
+    assert(regions_box_size(0.5, 0.5, 0.5, 0.5) == 0.0);
+}
+
 static void test_store(void) {
     regions_t* r = regions_new();
     region_t set[2] = {{0.1, 0.1, 0.3, 0.3}, {0.5, 0.5, 0.6, 0.6}};
@@ -101,6 +108,7 @@ static void test_convert(void) {
 
 int main(void) {
     test_parse();
+    test_box_size();
     test_store();
     test_square();
     test_convert();

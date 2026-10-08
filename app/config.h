@@ -12,6 +12,7 @@ typedef struct {
     int hold_s;            // seconds without the animal until it is reported as gone
     int debug_pct;         // troubleshooting: log and draw everything seen above this score, 0 = off
     bool region_mode;      // only look at regions where the camera sees unclassified movement
+    int min_animal_pct;    // smallest animal: sqrt(width*height) of its box in percent of the image, 0 = off
     int min_box_pct;       // smallest region, sqrt(width*height) in percent of the image
     int region_hold_s;     // keep looking this long after the last region
     int max_regions;       // regions looked at per frame

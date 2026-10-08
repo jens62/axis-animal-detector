@@ -8,6 +8,12 @@
 
 #define MAX_STORED 16
 
+double regions_box_size(double left, double top, double right, double bottom) {
+    double w = right - left;
+    double h = bottom - top;
+    return (w <= 0.0 || h <= 0.0) ? 0.0 : sqrt(w * h);
+}
+
 int regions_parse_frame(const char* data, size_t len, double min_size, region_t* out, int max_out) {
     json_t* root = json_loadb(data, len, 0, NULL);
     if (root == NULL)
@@ -30,7 +36,7 @@ int regions_parse_frame(const char* data, size_t len, double min_size, region_t*
         r.bottom = json_number_value(json_object_get(box, "bottom"));
         double w = r.right - r.left;
         double h = r.bottom - r.top;
-        if (w <= 0.0 || h <= 0.0 || sqrt(w * h) < min_size)
+        if (regions_box_size(r.left, r.top, r.right, r.bottom) < min_size)
             continue;
 
         // Insert sorted by area, largest first.

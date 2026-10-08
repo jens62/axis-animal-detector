@@ -102,7 +102,7 @@ function validate(changes) {
     return Number.isFinite(n) && n >= min && n <= max ? null : key + " must be a number from " + min + " to " + max;
   };
   return num("Threshold", 1, 100) || num("StartFrames", 1, 1000) || num("HoldSec", 0, 3600) || num("DebugThreshold", 0, 100) ||
-         num("MinBoxPct", 1, 50) || num("RegionHoldSec", 0, 60) || num("MaxRegions", 1, 8);
+         num("MinBoxPct", 1, 50) || num("MinAnimalPct", 0, 50) || num("RegionHoldSec", 0, 60) || num("MaxRegions", 1, 8);
 }
 
 async function save(event) {

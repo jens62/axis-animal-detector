@@ -319,6 +319,7 @@ typedef struct {
     float debug_threshold;
     bool draw_boxes;
     int64_t draw_hold_ms;  // how long the box of a detected animal stays on the video
+    double min_animal_size;  // detections smaller than this (sqrt(w*h), normalized) do not count
     model_provider_t* model;
     model_tensor_output_t* tensors;
     size_t n_tensors;
@@ -386,15 +387,19 @@ static void collect_detections(const frame_ctx_t* c, const xform_t* xf, const ch
         int label = (int)classes[i];
         if (label < 0 || (size_t)label >= c->n_labels)
             continue;
-        bool animal = c->allowed[label];
-        bool debug  = seen != NULL && scores[i] >= c->debug_threshold;
-        if (debug && seen->len < 200)
-            g_string_append_printf(seen, "%s%s%s %.2f%s", seen->len > 0 ? ", " : "", tag,
-                                   c->labels[label], scores[i], animal ? " (animal)" : "");
         float bl = xf->x0 + locations[4 * i + 1] * xf->sx;
         float bt = xf->y0 + locations[4 * i] * xf->sy;
         float br = xf->x0 + locations[4 * i + 3] * xf->sx;
         float bb = xf->y0 + locations[4 * i + 2] * xf->sy;
+        bool animal    = c->allowed[label];
+        bool too_small = animal && regions_box_size(bl, bt, br, bb) < c->min_animal_size;
+        bool debug     = seen != NULL && scores[i] >= c->debug_threshold;
+        if (debug && seen->len < 200)
+            g_string_append_printf(seen, "%s%s%s %.2f%s", seen->len > 0 ? ", " : "", tag,
+                                   c->labels[label], scores[i],
+                                   too_small ? " (animal, too small)" : animal ? " (animal)" : "");
+        if (too_small)
+            continue;  // a real animal in view is larger than this: a leaf, a spot, the wind
         if (animal && scores[i] >= c->threshold) {
             remember_box(bl, bt, br, bb, c->draw_hold_ms);  // drawn red by finish_frame()
         } else if (c->draw_boxes && debug) {
@@ -558,7 +563,7 @@ static gpointer parameter_thread(gpointer loop) {
 
 static void watch_parameters(AXParameter* handle) {
     static const char* const names[] = {"Threshold", "StartFrames", "HoldSec", "DrawBoxes",
-                                        "AnimalClasses", "DebugThreshold", "RegionMode", "MinBoxPct", "OverlayChannels",
+                                        "AnimalClasses", "DebugThreshold", "RegionMode", "MinBoxPct", "MinAnimalPct", "OverlayChannels",
                                         "RegionHoldSec", "MaxRegions"};
     loaded_values = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {
@@ -798,6 +803,7 @@ int main(int argc, char** argv) {
                        (float)cfg.debug_pct / 100.0f,
                        cfg.draw_boxes,
                        (int64_t)cfg.hold_s * 1000,
+                       cfg.min_animal_pct / 100.0,
                        model_provider,
                        tensor_outputs,
                        number_output_tensors};

@@ -16,6 +16,9 @@ typedef struct {
     double bottom;  // normalized 0..1
 } region_t;
 
+/** Size of a box: sqrt(width * height) in normalized units (0 for an empty box). */
+double regions_box_size(double left, double top, double right, double bottom);
+
 /**
  * Class-less detections of one frame whose size sqrt(width*height) is at least `min_size`
  * (normalized). Larger boxes first, at most max_out. Returns how many were written; frames in any
