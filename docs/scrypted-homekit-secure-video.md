@@ -54,7 +54,9 @@ storage and notifications. In the detector's settings:
 | Draw boxes (`DrawBoxes`), video channels (`OverlayChannels`) | on, `0,1`: the recording then shows the red and yellow boxes |
 
 ### 2. Check that Scrypted can see the camera event
-Install the mapper plugin and create a device in it:
+Install the mapper plugin (build and deploy it with `npm run build` and `npx scrypted-deploy`, see
+[Build and install](https://github.com/jens62/scrypted-onvif-motion-mapper#build-and-install)) and create
+a device in it:
 
 | Setting | Value |
 |---|---|
