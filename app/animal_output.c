@@ -7,9 +7,12 @@
 
 #include "animal_any.h"
 
+typedef enum { KIND_STATE, KIND_DETAILS } kind_t;
+
 typedef struct {
     animal_output_t* out;
-    char* topic;         // last topic level: "Bird", "Any"
+    kind_t kind;         // KIND_STATE: active; KIND_DETAILS: a pulse with Species and Score
+    char* topic;         // last topic level: "Bird", "Any", "Detection"
     char* nice;          // name in the rule editor: "Bird", "Any animal"
     guint declaration;   // 0: not declared
     volatile gint ready;
@@ -19,7 +22,7 @@ struct animal_output {
     AXEventHandler* handler;
     char** labels;
     size_t n;
-    slot_t* slots;  // indexed by label, slots[n] is "Any"
+    slot_t* slots;  // indexed by label, slots[n] is "Any", slots[n + 1] the details pulse
     animal_any_t* any;
 };
 
@@ -36,11 +39,14 @@ static void declaration_complete(guint declaration, gpointer user_data) {
     g_atomic_int_set(&slot->ready, 1);
 }
 
-static void declare(animal_output_t* out, slot_t* slot, const char* topic, const char* nice) {
+static void declare(animal_output_t* out, slot_t* slot, kind_t kind, const char* topic,
+                    const char* nice) {
     slot->out   = out;
+    slot->kind  = kind;
     slot->topic = g_strdup(topic);
     slot->nice  = g_strdup(nice);
     gboolean start_value = FALSE;
+    gdouble start_score  = 0.0;
 
     AXEventKeyValueSet* set = ax_event_key_value_set_new();
     // Axis events: topic0 CameraApplicationPlatform, then the application and the event.
@@ -50,12 +56,26 @@ static void declare(animal_output_t* out, slot_t* slot, const char* topic, const
                                          AX_VALUE_TYPE_STRING, NULL);
     ax_event_key_value_set_add_key_value(set, "topic2", "tnsaxis", slot->topic,
                                          AX_VALUE_TYPE_STRING, NULL);
-    // Only the state is declared: every declared data key becomes an input field in the rule
-    // editor. Species and Score are sent with each event (for MQTT) but not declared.
-    ax_event_key_value_set_add_key_value(set, "active", NULL, &start_value, AX_VALUE_TYPE_BOOL,
-                                         NULL);
-    ax_event_key_value_set_mark_as_data(set, "active", NULL, NULL);
-    ax_event_key_value_set_mark_as_user_defined(set, "active", NULL, "wstype:xs:boolean", NULL);
+    // An event must be sent with exactly the keys it was declared with, and every declared data
+    // key becomes an input field in the rule editor. So the per-animal events declare only the
+    // state; Species and Score are on a separate pulse event.
+    if (kind == KIND_STATE) {
+        ax_event_key_value_set_add_key_value(set, "active", NULL, &start_value,
+                                             AX_VALUE_TYPE_BOOL, NULL);
+        ax_event_key_value_set_mark_as_data(set, "active", NULL, NULL);
+        ax_event_key_value_set_mark_as_user_defined(set, "active", NULL, "wstype:xs:boolean",
+                                                    NULL);
+    } else {
+        ax_event_key_value_set_add_key_value(set, "Species", NULL, "", AX_VALUE_TYPE_STRING,
+                                             NULL);
+        ax_event_key_value_set_add_key_value(set, "Score", NULL, &start_score,
+                                             AX_VALUE_TYPE_DOUBLE, NULL);
+        ax_event_key_value_set_mark_as_data(set, "Species", NULL, NULL);
+        ax_event_key_value_set_mark_as_user_defined(set, "Species", NULL, "wstype:xs:string",
+                                                    NULL);
+        ax_event_key_value_set_mark_as_data(set, "Score", NULL, NULL);
+        ax_event_key_value_set_mark_as_user_defined(set, "Score", NULL, "wstype:xs:float", NULL);
+    }
     // The rule editor shows the nice name of the last topic level's value, so the app name goes
     // into it: "Animal Detector - Bird", like "Image Health Analytics - Block".
     // The nice name of a topic level is the one of its VALUE (the 5th argument), not of its key.
@@ -63,7 +83,8 @@ static void declare(animal_output_t* out, slot_t* slot, const char* topic, const
     ax_event_key_value_set_add_nice_names(set, "topic2", "tnsaxis", NULL, slot->nice, NULL);
 
     GError* error = NULL;
-    if (!ax_event_handler_declare(out->handler, set, FALSE /* stateful */, &slot->declaration,
+    if (!ax_event_handler_declare(out->handler, set, kind == KIND_DETAILS /* stateless */,
+                                  &slot->declaration,
                                   declaration_complete, slot, &error)) {
         syslog(LOG_ERR, "Cannot declare event for %s: %s", slot->topic, error->message);
         g_clear_error(&error);
@@ -77,7 +98,7 @@ animal_output_t* animal_output_new(char** labels, const bool* allowed, size_t n_
     out->handler         = ax_event_handler_new();
     out->labels          = labels;
     out->n               = n_labels;
-    out->slots           = calloc(n_labels + 1, sizeof(slot_t));
+    out->slots           = calloc(n_labels + 2, sizeof(slot_t));
     out->any             = animal_any_new((int)n_labels);
     for (size_t i = 0; i < n_labels; i++) {
         if (!allowed[i])
@@ -86,11 +107,13 @@ animal_output_t* animal_output_new(char** labels, const bool* allowed, size_t n_
         if (topic[0] >= 'a' && topic[0] <= 'z')
             topic[0] = (char)(topic[0] - 'a' + 'A');  // "cat" -> "Cat"
         char* nice = g_strdup_printf("Animal Detector - %s", topic);
-        declare(out, &out->slots[i], topic, nice);
+        declare(out, &out->slots[i], KIND_STATE, topic, nice);
         g_free(nice);
         g_free(topic);
     }
-    declare(out, &out->slots[n_labels], "Any", "Animal Detector - Any animal");
+    declare(out, &out->slots[n_labels], KIND_STATE, "Any", "Animal Detector - Any animal");
+    declare(out, &out->slots[n_labels + 1], KIND_DETAILS, "Detection",
+            "Animal Detector - Detection (Species, Score)");
     return out;
 }
 
@@ -102,15 +125,15 @@ static gboolean send_in_main_loop(gpointer data) {
         gboolean detected = job->detected;
         gdouble score     = job->score;
         AXEventKeyValueSet* set = ax_event_key_value_set_new();
-        ax_event_key_value_set_add_key_value(set, "active", NULL, &detected, AX_VALUE_TYPE_BOOL,
-                                             NULL);
-        // The same state under the name earlier versions used, for existing consumers.
-        ax_event_key_value_set_add_key_value(set, "Detected", NULL, &detected, AX_VALUE_TYPE_BOOL,
-                                             NULL);
-        ax_event_key_value_set_add_key_value(set, "Species", NULL, job->species,
-                                             AX_VALUE_TYPE_STRING, NULL);
-        ax_event_key_value_set_add_key_value(set, "Score", NULL, &score, AX_VALUE_TYPE_DOUBLE,
-                                             NULL);
+        if (slot->kind == KIND_STATE) {
+            ax_event_key_value_set_add_key_value(set, "active", NULL, &detected,
+                                                 AX_VALUE_TYPE_BOOL, NULL);
+        } else {
+            ax_event_key_value_set_add_key_value(set, "Species", NULL, job->species,
+                                                 AX_VALUE_TYPE_STRING, NULL);
+            ax_event_key_value_set_add_key_value(set, "Score", NULL, &score,
+                                                 AX_VALUE_TYPE_DOUBLE, NULL);
+        }
         AXEvent* event = ax_event_new2(set, NULL);
         ax_event_key_value_set_free(set);
         GError* error = NULL;
@@ -144,12 +167,14 @@ void animal_output_send(animal_output_t* out, int label, bool detected, double s
     int any = animal_any_update(out->any, label, detected);
     if (any != 0)
         send_slot(&out->slots[out->n], out->labels[label], any > 0, score);
+    if (detected)  // one pulse per start with the species and the score
+        send_slot(&out->slots[out->n + 1], out->labels[label], true, score);
 }
 
 void animal_output_free(animal_output_t* out) {
     if (out == NULL)
         return;
-    for (size_t i = 0; i <= out->n; i++) {
+    for (size_t i = 0; i <= out->n + 1; i++) {
         if (out->slots[i].declaration != 0)
             ax_event_handler_undeclare(out->handler, out->slots[i].declaration, NULL);
         g_free(out->slots[i].topic);

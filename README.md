@@ -24,12 +24,16 @@ animal":
 
     topic tnsaxis:CameraApplicationPlatform/AnimalDetector/<Species>   (e.g. .../Bird)
     topic tnsaxis:CameraApplicationPlatform/AnimalDetector/Any
-    declared data: active = true | false
-    sent with each event: active, Detected (same), Species = "bird" ..., Score = 0..1
+    data: active = true | false
 
-Only `active` is declared, so that the rule editor shows no input fields for the other values.
-`Species` and `Score` are sent with every event nevertheless (they are for MQTT, the editor could
-not use them as filters anyway).
+    topic tnsaxis:CameraApplicationPlatform/AnimalDetector/Detection   (a pulse)
+    data: Species = "bird" ..., Score = 0..1
+
+The camera requires an event to carry exactly the keys it was declared with, and the rule editor
+makes an input field of every declared data key. So the state events carry only `active` (the rule
+editor shows one field, `active`, prefilled with 1). `Species` and `Score` are on the separate
+`Detection` pulse, sent once when a species starts, which gives MQTT and notifications one topic for
+all species.
 
 `Any` is true while at least one species is active; its `Species` and `Score` are those of the
 species that started or ended it. The topics start with `CameraApplicationPlatform` because only such
