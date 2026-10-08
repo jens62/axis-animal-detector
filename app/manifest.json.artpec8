@@ -20,7 +20,7 @@
             "runOptions": "/usr/local/packages/animal_detector/model/converted_model.tflite 50 /usr/local/packages/animal_detector/label/labels.txt -d axis-a8-dlpu-tflite",
             "vendorUrl": "https://github.com/jens62/axis-animal-detector",
             "runMode": "respawn",
-            "version": "0.3.5",
+            "version": "0.3.6",
             "compatibleOsVersions": [
                 {
                     "min": "12.2",

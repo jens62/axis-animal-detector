@@ -19,6 +19,13 @@ package on the camera has to be tried.
   regions, or analyse them at two scales.
 - Class-less boxes next to a classified person (feet, bags) produce clutter at low scores
   (`oven 0.28`, `car 0.33`). Idea: ignore regions that touch a classified object, as an option.
+- Wind: moving foliage becomes class-less tracks, the model reads some of them as `bear` or `horse`
+  at 0.5 to 0.6 (seen on a windy day with `Threshold` 20 and `StartFrames` 1). Ideas: ignore regions
+  that stay in the same small area for a long time, require that a region really travels, a mask of
+  image areas to ignore (vegetation), a higher default `StartFrames`, and a check of the model result
+  against a second look (the same region on the next frames).
+- The overlay API draws no text, so the video cannot show species and score. Idea: put the box
+  (`Left`, `Top`, `Right`, `Bottom`) into the `Detection` pulse so that other tools can draw it.
 - Animals that do not move are not seen in region mode. Idea: a slow full-frame pass (every few
   seconds) as an option.
 - The scene boxes and our video frame are matched by "latest". Idea: use the timestamps to pick the

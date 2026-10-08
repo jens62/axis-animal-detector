@@ -257,10 +257,64 @@ typedef struct {
     float threshold;
     float debug_threshold;
     bool draw_boxes;
+    int64_t draw_hold_ms;  // how long the box of a detected animal stays on the video
     model_provider_t* model;
     model_tensor_output_t* tensors;
     size_t n_tensors;
 } frame_ctx_t;
+
+/*
+ * Overlay: what the detector looks at and what it found.
+ *   yellow, thin   the region (a square around a box of the camera's tracker) that is analysed
+ *   red, thick     an animal at or above Threshold; stays for draw_hold_ms after the last sighting
+ *   green, thin    (DebugThreshold only) any other object the model sees
+ * The overlay API draws no text, the species and score are in the log and in the events.
+ */
+#define MAX_STICKY 8
+
+typedef struct {
+    float l, t, r, b;  // normalized frame coordinates
+    int64_t until_ms;
+} sticky_box_t;
+
+static sticky_box_t sticky[MAX_STICKY];
+
+/** Remembers the box of a detected animal; the same animal (nearby centre) updates its slot. */
+static void remember_box(float l, float t, float r, float b, int64_t hold_ms) {
+    int64_t now = now_ms();
+    int slot    = -1;
+    for (int i = 0; i < MAX_STICKY; i++) {
+        float dx = (sticky[i].l + sticky[i].r) / 2 - (l + r) / 2;
+        float dy = (sticky[i].t + sticky[i].b) / 2 - (t + b) / 2;
+        if (sticky[i].until_ms > now && dx * dx + dy * dy < 0.05f * 0.05f) {
+            slot = i;
+            break;
+        }
+    }
+    for (int i = 0; slot < 0 && i < MAX_STICKY; i++)
+        if (sticky[i].until_ms <= now)
+            slot = i;
+    if (slot < 0)
+        slot = 0;
+    sticky[slot] = (sticky_box_t){l, t, r, b, now + hold_ms};
+}
+
+static void draw_style(bbox_t* bbox, uint8_t r, uint8_t g, uint8_t b, bool thick) {
+    bbox_color(bbox, bbox_color_from_rgb(r, g, b));
+    if (thick)
+        bbox_thickness_thick(bbox);
+    else
+        bbox_thickness_thin(bbox);
+}
+
+static void draw_sticky_boxes(bbox_t* bbox) {
+    int64_t now = now_ms();
+    draw_style(bbox, 0xff, 0x00, 0x00, true);
+    bbox_coordinates_frame_normalized(bbox);
+    for (int i = 0; i < MAX_STICKY; i++)
+        if (sticky[i].until_ms > now)
+            bbox_rectangle(bbox, sticky[i].l, sticky[i].t, sticky[i].r, sticky[i].b);
+}
 
 /**
  * Adds the animals of one model run to dets, draws their boxes, and (troubleshooting) lists
@@ -285,12 +339,16 @@ static void collect_detections(const frame_ctx_t* c, const xform_t* xf, const ch
         if (debug && seen->len < 200)
             g_string_append_printf(seen, "%s%s%s %.2f%s", seen->len > 0 ? ", " : "", tag,
                                    c->labels[label], scores[i], animal ? " (animal)" : "");
-        if (c->draw_boxes && ((animal && scores[i] >= c->threshold) || debug)) {
+        float bl = xf->x0 + locations[4 * i + 1] * xf->sx;
+        float bt = xf->y0 + locations[4 * i] * xf->sy;
+        float br = xf->x0 + locations[4 * i + 3] * xf->sx;
+        float bb = xf->y0 + locations[4 * i + 2] * xf->sy;
+        if (animal && scores[i] >= c->threshold) {
+            remember_box(bl, bt, br, bb, c->draw_hold_ms);  // drawn red by finish_frame()
+        } else if (c->draw_boxes && debug) {
+            draw_style(c->bbox, 0x00, 0xc8, 0x00, false);
             bbox_coordinates_frame_normalized(c->bbox);
-            bbox_rectangle(c->bbox, xf->x0 + locations[4 * i + 1] * xf->sx,
-                           xf->y0 + locations[4 * i] * xf->sy,
-                           xf->x0 + locations[4 * i + 3] * xf->sx,
-                           xf->y0 + locations[4 * i + 2] * xf->sy);
+            bbox_rectangle(c->bbox, bl, bt, br, bb);
         }
         if (animal && *n < MAX_DETECTIONS)
             dets[(*n)++] = (animal_det_t){label, scores[i]};
@@ -303,8 +361,10 @@ static void finish_frame(const frame_ctx_t* c, animal_det_t* dets, int n, GStrin
         g_atomic_int_add(&sim_frames, -1);
         dets[n++] = (animal_det_t){g_atomic_int_get(&sim_label), 0.99f};
     }
-    if (c->draw_boxes && !bbox_commit(c->bbox, 0u)) {
-        panic("Failed to commit box drawer");
+    if (c->draw_boxes) {
+        draw_sticky_boxes(c->bbox);
+        if (!bbox_commit(c->bbox, 0u))
+            panic("Failed to commit box drawer");
     }
     if (seen != NULL) {
         static int64_t last_log_ms;
@@ -400,6 +460,7 @@ static unsigned process_region_frame(const frame_ctx_t* c, VdoBuffer* buf, const
             char tag[8];
             snprintf(tag, sizeof(tag), "[r%d] ", r + 1);
             if (c->draw_boxes) {  // the region itself, so the stream shows what is examined
+                draw_style(c->bbox, 0xff, 0xd7, 0x00, false);
                 bbox_coordinates_frame_normalized(c->bbox);
                 bbox_rectangle(c->bbox, xf.x0, xf.y0, xf.x0 + xf.sx, xf.y0 + xf.sy);
             }
@@ -681,6 +742,7 @@ int main(int argc, char** argv) {
                        (float)cfg.threshold_pct / 100.0f,
                        (float)cfg.debug_pct / 100.0f,
                        cfg.draw_boxes,
+                       (int64_t)cfg.hold_s * 1000,
                        model_provider,
                        tensor_outputs,
                        number_output_tensors};

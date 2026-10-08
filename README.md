@@ -84,7 +84,7 @@ the test buttons of Axis' audio detection.
 | `StartFrames` | 3 | Frames in a row before an animal is reported |
 | `HoldSec` | 5 | Seconds without the animal until it is reported as gone |
 | `AnimalClasses` | bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe | Label names of the COCO label file that count as animals |
-| `DrawBoxes` | yes | Draw boxes around animals in the video stream |
+| `DrawBoxes` | yes | Draw boxes on the video stream: yellow = the region that is analysed (region mode), red = an animal at or above `Threshold` (kept for `HoldSec` after the last sighting), green = other objects (only with `DebugThreshold`). The overlay cannot show text, species and score are in the log and the events |
 | `RegionMode` | no | Only analyse regions of unclassified movement (see above) |
 | `MinBoxPct` | 3 | Smallest region, sqrt(width x height) in percent of the image |
 | `RegionHoldSec` | 3 | Keep looking this long after the last region |
