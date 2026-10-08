@@ -41,7 +41,6 @@ static void declare(animal_output_t* out, slot_t* slot, const char* topic, const
     slot->topic = g_strdup(topic);
     slot->nice  = g_strdup(nice);
     gboolean start_value = FALSE;
-    gdouble start_score  = 0.0;
 
     AXEventKeyValueSet* set = ax_event_key_value_set_new();
     // Axis events: topic0 CameraApplicationPlatform, then the application and the event.
@@ -51,23 +50,17 @@ static void declare(animal_output_t* out, slot_t* slot, const char* topic, const
                                          AX_VALUE_TYPE_STRING, NULL);
     ax_event_key_value_set_add_key_value(set, "topic2", "tnsaxis", slot->topic,
                                          AX_VALUE_TYPE_STRING, NULL);
-    ax_event_key_value_set_add_key_value(set, "Detected", NULL, &start_value, AX_VALUE_TYPE_BOOL,
+    // Only the state is declared: every declared data key becomes an input field in the rule
+    // editor. Species and Score are sent with each event (for MQTT) but not declared.
+    ax_event_key_value_set_add_key_value(set, "active", NULL, &start_value, AX_VALUE_TYPE_BOOL,
                                          NULL);
-    ax_event_key_value_set_add_key_value(set, "Species", NULL, "", AX_VALUE_TYPE_STRING, NULL);
-    ax_event_key_value_set_add_key_value(set, "Score", NULL, &start_score, AX_VALUE_TYPE_DOUBLE,
-                                         NULL);
-    ax_event_key_value_set_mark_as_data(set, "Detected", NULL, NULL);
-    ax_event_key_value_set_mark_as_user_defined(set, "Detected", NULL, "wstype:xs:boolean", NULL);
-    ax_event_key_value_set_mark_as_data(set, "Species", NULL, NULL);
-    ax_event_key_value_set_mark_as_user_defined(set, "Species", NULL, "wstype:xs:string", NULL);
-    ax_event_key_value_set_mark_as_data(set, "Score", NULL, NULL);
-    ax_event_key_value_set_mark_as_user_defined(set, "Score", NULL, "wstype:xs:float", NULL);
+    ax_event_key_value_set_mark_as_data(set, "active", NULL, NULL);
+    ax_event_key_value_set_mark_as_user_defined(set, "active", NULL, "wstype:xs:boolean", NULL);
     // The rule editor shows the nice name of the last topic level's value, so the app name goes
     // into it: "Animal Detector - Bird", like "Image Health Analytics - Block".
     // The nice name of a topic level is the one of its VALUE (the 5th argument), not of its key.
     ax_event_key_value_set_add_nice_names(set, "topic1", "tnsaxis", NULL, "Animal Detector", NULL);
     ax_event_key_value_set_add_nice_names(set, "topic2", "tnsaxis", NULL, slot->nice, NULL);
-    ax_event_key_value_set_add_nice_names(set, "Detected", NULL, "Detected", NULL, NULL);
 
     GError* error = NULL;
     if (!ax_event_handler_declare(out->handler, set, FALSE /* stateful */, &slot->declaration,
@@ -109,6 +102,9 @@ static gboolean send_in_main_loop(gpointer data) {
         gboolean detected = job->detected;
         gdouble score     = job->score;
         AXEventKeyValueSet* set = ax_event_key_value_set_new();
+        ax_event_key_value_set_add_key_value(set, "active", NULL, &detected, AX_VALUE_TYPE_BOOL,
+                                             NULL);
+        // The same state under the name earlier versions used, for existing consumers.
         ax_event_key_value_set_add_key_value(set, "Detected", NULL, &detected, AX_VALUE_TYPE_BOOL,
                                              NULL);
         ax_event_key_value_set_add_key_value(set, "Species", NULL, job->species,
