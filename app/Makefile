@@ -1,5 +1,5 @@
 PROG1	= $(shell jq -r '.acapPackageConf.setup.appName' manifest.json)
-OBJS1	= $(PROG1).c animal_events.c animal_output.c config.c crop.c regions.c scene_feed.c argparse.c channel_util.c img_util.c labelparse.c model.c model_preprocessing.c panic.c
+OBJS1	= $(PROG1).c animal_events.c animal_any.c animal_output.c config.c crop.c regions.c scene_feed.c argparse.c channel_util.c img_util.c labelparse.c model.c model_preprocessing.c panic.c
 PROGS	= $(PROG1)
 DEBUG_DIR = debug
 

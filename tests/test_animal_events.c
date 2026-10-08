@@ -2,6 +2,7 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "../app/animal_any.h"
 #include "../app/animal_events.h"
 
 enum { NONE, CAT, DOG, TABLE, N_LABELS };
@@ -83,10 +84,27 @@ static void test_two_classes(void) {
     animal_tracker_free(t);
 }
 
+static void test_any(void) {
+    animal_any_t* a = animal_any_new(4);
+
+    assert(animal_any_update(a, 1, true) == 1);    // the first animal: "any" starts
+    assert(animal_any_update(a, 1, true) == 0);    // repeated start of the same species
+    assert(animal_any_update(a, 2, true) == 0);    // a second species: still active
+    assert(animal_any_update(a, 1, false) == 0);   // one is left
+    assert(animal_any_update(a, 1, false) == 0);   // repeated stop
+    assert(animal_any_update(a, 2, false) == -1);  // the last one is gone: "any" ends
+    assert(animal_any_update(a, 3, true) == 1);    // and again
+    assert(animal_any_update(a, 3, false) == -1);
+    assert(animal_any_update(a, -1, true) == 0);   // out of range
+    assert(animal_any_update(a, 4, true) == 0);
+    animal_any_free(a);
+}
+
 int main(void) {
     test_start_stop();
     test_filtering();
     test_two_classes();
+    test_any();
     puts("animal_events: all tests passed");
     return 0;
 }

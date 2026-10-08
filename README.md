@@ -19,12 +19,22 @@ motion-detector style events by `app/animal_events.c`:
 * **start**: a class is seen with at least `Threshold` % in `StartFrames` consecutive frames
 * **stop**: it was not seen for `HoldSec` seconds (short drop-outs do not end the episode)
 
-Each class is a stateful camera event, declared by `app/animal_output.c`:
+Each species is a stateful camera event, declared by `app/animal_output.c`, plus one for "any
+animal":
 
-    topic tnsaxis:AnimalDetector/<Class>     data: Detected = true | false, Species = "bird" ..., Score = 0..1
+    topic tnsaxis:CameraApplicationPlatform/AnimalDetector/<Species>   (e.g. .../Bird)
+    topic tnsaxis:CameraApplicationPlatform/AnimalDetector/Any
+    data: Detected = true | false, Species = "bird" ..., Score = 0..1
 
-It shows up in the camera's event list (rules, subscriptions). To get it to MQTT, add the topic to
-`MotionEvents` of [axis-scene-mqtt-bridge](https://github.com/jens62/axis-scene-mqtt-bridge)
+`Any` is true while at least one species is active; its `Species` and `Score` are those of the
+species that started or ended it. The topics start with `CameraApplicationPlatform` because only such
+Axis events are offered as conditions in the camera's rule editor (Events -> Rules -> Condition,
+under "Application": "Animal Detector: Bird", "Animal Detector: Any animal"). Before 0.3.0 they were
+`tnsaxis:AnimalDetector/<Class>`, which exist for ONVIF but are not offered in the rule editor.
+
+To get them to MQTT, add `tnsaxis:CameraApplicationPlatform/AnimalDetector` to `MotionEvents` of
+[axis-scene-mqtt-bridge](https://github.com/jens62/axis-scene-mqtt-bridge); the MQTT topics are then
+`<prefix>/motion/CameraApplicationPlatform/AnimalDetector/<Species>`
 (`Detected` is already one of its event keys; add `Species` and `Score` to its `EventKeys` to get them on MQTT too).
 `Score` is the score that started the episode on "true" and the best score of the episode on "false".
 
