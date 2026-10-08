@@ -35,7 +35,9 @@ Everything marked **not verified** was not tried on that set-up.
   editor (Events > Rules > Condition > "Animal Detector - Any animal").
 - Scrypted with the camera added (the ONVIF camera plugin in the example) and the HomeKit plugin
   enabled for it.
-- The [scrypted-onvif-motion-mapper](https://github.com/jens62/scrypted-onvif-motion-mapper) plugin.
+- The [scrypted-onvif-motion-mapper](https://github.com/jens62/scrypted-onvif-motion-mapper) plugin
+  (0.0.5 or newer if you also want recordings on the camera's normal motion, see
+  "Also record on normal motion" below).
 - For HomeKit Secure Video: a home hub (Apple TV or HomePod) and an iCloud+ plan.
 
 ## How to
@@ -71,6 +73,31 @@ switches from "No motion" to "Motion".
 Open the **camera** device in Scrypted (not the mapper device), Extensions, switch on
 **Custom Motion Sensor**, then under "Custom Motion Sensor" select the mapper device as the motion
 sensor. **This replaces the camera's own motion sensor** (see the FAQ).
+
+### Also record on normal motion (optional)
+The Custom Motion Sensor **replaces** the camera's own motion sensor (see the FAQ), so with the setting
+of step 2 only animals start a recording. To record on normal motion **and** on animals, put both
+events into the one mapper device. Needs mapper 0.0.5 or newer, which can combine several events.
+Change the device's settings in the mapper:
+
+| Setting | Before (animals only) | Now (motion and animals) |
+|---|---|---|
+| Event Topic | `AnimalDetector/Any` | `/(MotionRegionDetector\/Motion\|AnimalDetector\/Any)$/` |
+| Data Item Name | `active` | empty (the camera's motion item has another name, e.g. `State`; an empty name matches on the topic alone) |
+| Combine Matched Topics (any active) | off | **on** |
+| Motion Reset (seconds) | `0` | `0` |
+
+Motion is then on as long as **either** the camera reports motion or an animal is there. If one event
+ends while the other is still on, the motion stays on (this is what the combine setting is for;
+without it the last event would win and end the motion too early). The first part of the regex is the
+camera's own motion event: **check the topic your camera really sends** (switch on "Log All Events",
+walk in front of the camera and read the topic in the mapper's log; on an Axis camera it is probably
+`RuleEngine/MotionRegionDetector/Motion` with the item `State`). Both events must carry a single data
+item, otherwise the mapper ignores them. Nothing else changes: the camera still gets the mapper device
+as its Custom Motion Sensor, and step 5 ("Motion is detected") is the setting you want.
+
+Trade-off: normal motion is much more frequent than animals (wind, shadows, people, cars), so recordings
+and iCloud storage grow. Use the camera's own motion settings (areas, sensitivity) to keep it calm.
 
 ### 4. HomeKit plugin
 - The camera is enabled in the HomeKit plugin (it is in the plugin's list of extended devices).
@@ -120,8 +147,9 @@ handled.
 It replaces it: the extension mirrors only the selected sensor (`ReplaceMotionSensor` in Scrypted's
 Dummy Switch plugin). Once attached, the camera's own motion detection no longer reaches Scrypted or
 HomeKit, and only animals start a recording. Walking in front of the camera without a simulation or an
-animal does not record. That is expected here. Recording on normal motion **and** animals needs both
-signals in one device; that is on the mapper's improvement list ("any matched topic is active").
+animal does not record. That is expected with the settings of step 2. Recording on normal motion
+**and** animals needs both signals in one device; the mapper (0.0.5 or newer) does that with
+"Combine Matched Topics", see "Also record on normal motion" above.
 
 **The simulation recorded a clip according to the log, but I see nothing in the Home app.**
 The log (`motion recording ...`, fragments sent) and the debug clip prove that Scrypted recorded and
@@ -131,7 +159,8 @@ would recognise. Switch to "Motion is detected" (step 5), or walk in front of th
 test.
 
 **Why does it not record when I walk in front of the camera without a simulation?**
-Because the camera's own motion sensor was replaced (see above). Only the detector's events trigger.
+Because the camera's own motion sensor was replaced (see above). Only the detector's events trigger,
+unless you combine both events in the mapper ("Also record on normal motion").
 
 **Do I have to create another ONVIF media profile for the stream with the animal rectangles?**
 No. The rectangles are drawn into the camera's video on the views listed in `OverlayChannels`
@@ -174,6 +203,7 @@ No. It only feeds the camera. Switch HomeKit off for it.
 | Custom Motion Sensor attached; HomeKit records (log, fragments, debug clip) | yes |
 | Recording only with an animal event, not on normal motion | yes |
 | Recording with a person walking in front while a simulation runs | yes |
+| Normal motion and animals in one mapper device ("Combine Matched Topics") | not verified yet (the combining logic is tested with timers, not on a camera) |
 | "Motion is detected" in the Home app records every event without Apple's analysis | not verified yet |
 | Boxes visible in the HKSV clip in the Home app | not verified |
 
