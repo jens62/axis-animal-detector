@@ -62,7 +62,8 @@ static void declare(animal_output_t* out, slot_t* slot, const char* topic, const
     ax_event_key_value_set_mark_as_user_defined(set, "Species", NULL, "wstype:xs:string", NULL);
     ax_event_key_value_set_mark_as_data(set, "Score", NULL, NULL);
     ax_event_key_value_set_mark_as_user_defined(set, "Score", NULL, "wstype:xs:float", NULL);
-    // The rule editor shows "<topic1 nice name>: <topic2 nice name>".
+    // The rule editor shows the nice name of the last topic level only, so the app name goes into
+    // it: "Animal Detector - Bird", like "Image Health Analytics - Block".
     ax_event_key_value_set_add_nice_names(set, "topic1", "tnsaxis", "Animal Detector", NULL, NULL);
     ax_event_key_value_set_add_nice_names(set, "topic2", "tnsaxis", slot->nice, NULL, NULL);
     ax_event_key_value_set_add_nice_names(set, "Detected", NULL, "Detected", NULL, NULL);
@@ -90,10 +91,12 @@ animal_output_t* animal_output_new(char** labels, const bool* allowed, size_t n_
         char* topic = g_strdup(labels[i]);
         if (topic[0] >= 'a' && topic[0] <= 'z')
             topic[0] = (char)(topic[0] - 'a' + 'A');  // "cat" -> "Cat"
-        declare(out, &out->slots[i], topic, topic);
+        char* nice = g_strdup_printf("Animal Detector - %s", topic);
+        declare(out, &out->slots[i], topic, nice);
+        g_free(nice);
         g_free(topic);
     }
-    declare(out, &out->slots[n_labels], "Any", "Any animal");
+    declare(out, &out->slots[n_labels], "Any", "Animal Detector - Any animal");
     return out;
 }
 

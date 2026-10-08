@@ -29,7 +29,7 @@ animal":
 `Any` is true while at least one species is active; its `Species` and `Score` are those of the
 species that started or ended it. The topics start with `CameraApplicationPlatform` because only such
 Axis events are offered as conditions in the camera's rule editor (Events -> Rules -> Condition,
-under "Application": "Animal Detector: Bird", "Animal Detector: Any animal"). Before 0.3.0 they were
+under "Anwendung": "Animal Detector - Bird", "Animal Detector - Any animal"). Before 0.3.0 they were
 `tnsaxis:AnimalDetector/<Class>`, which exist for ONVIF but are not offered in the rule editor.
 
 To get them to MQTT, add `tnsaxis:CameraApplicationPlatform/AnimalDetector` to `MotionEvents` of
