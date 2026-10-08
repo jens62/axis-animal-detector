@@ -7,7 +7,10 @@ Developed against an AXIS M4228-LVE (ARTPEC-8, aarch64, AXIS OS 12.x).
 
 ## Status
 
-Early work, **not yet verified on a camera**. Based on the `object-detection` example of
+Early work, but in use on an AXIS M4228-LVE: the events show up in the camera's rule editor, a rule with
+the *Record video* action records on them, and they reach Scrypted and HomeKit Secure Video (the
+[Scrypted guide](docs/scrypted-homekit-secure-video.md) lists what has been verified and what has not).
+Other cameras have not been tried. Based on the `object-detection` example of
 [acap-native-sdk-examples](https://github.com/AxisCommunications/acap-native-sdk-examples):
 SSD MobileNet v2 (COCO) on the ARTPEC-8 DLPU.
 
@@ -115,4 +118,11 @@ Companion project: [axis-scene-mqtt-bridge](https://github.com/jens62/axis-scene
 
 ## License
 
-See `LICENSE`.
+The code is under the Apache License 2.0, see `LICENSE`.
+
+**The model is not part of this repository.** The `Dockerfile` downloads the pretrained SSD MobileNet v2
+(COCO) model (`ssd_mobilenet_v2_coco_quant_postprocess.tflite`) and the COCO label file from Google Coral's
+[test_data](https://github.com/google-coral/test_data) repository, as the `object-detection` example of
+Axis does, and packs them into the `.eap` package; the packages in the releases contain them. The model and
+the labels are not covered by this repository's licence and keep their own terms. This repository does not state
+them: check the Coral repository before you redistribute a package.
