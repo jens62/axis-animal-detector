@@ -50,12 +50,21 @@ static void declare(animal_output_t* out, slot_t* slot, kind_t kind, const char*
 
     AXEventKeyValueSet* set = ax_event_key_value_set_new();
     // Axis events: topic0 CameraApplicationPlatform, then the application and the event.
-    ax_event_key_value_set_add_key_value(set, "topic0", "tnsaxis", "CameraApplicationPlatform",
-                                         AX_VALUE_TYPE_STRING, NULL);
-    ax_event_key_value_set_add_key_value(set, "topic1", "tnsaxis", "AnimalDetector",
-                                         AX_VALUE_TYPE_STRING, NULL);
-    ax_event_key_value_set_add_key_value(set, "topic2", "tnsaxis", slot->topic,
-                                         AX_VALUE_TYPE_STRING, NULL);
+    if (kind == KIND_STATE) {
+        ax_event_key_value_set_add_key_value(set, "topic0", "tnsaxis", "CameraApplicationPlatform",
+                                             AX_VALUE_TYPE_STRING, NULL);
+        ax_event_key_value_set_add_key_value(set, "topic1", "tnsaxis", "AnimalDetector",
+                                             AX_VALUE_TYPE_STRING, NULL);
+        ax_event_key_value_set_add_key_value(set, "topic2", "tnsaxis", slot->topic,
+                                             AX_VALUE_TYPE_STRING, NULL);
+    } else {
+        // Not under CameraApplicationPlatform: such events exist for subscribers (MQTT) but the
+        // rule editor does not offer them, which is wanted for the details pulse.
+        ax_event_key_value_set_add_key_value(set, "topic0", "tnsaxis", "AnimalDetector",
+                                             AX_VALUE_TYPE_STRING, NULL);
+        ax_event_key_value_set_add_key_value(set, "topic1", "tnsaxis", slot->topic,
+                                             AX_VALUE_TYPE_STRING, NULL);
+    }
     // An event must be sent with exactly the keys it was declared with, and every declared data
     // key becomes an input field in the rule editor. So the per-animal events declare only the
     // state; Species and Score are on a separate pulse event.
@@ -79,8 +88,11 @@ static void declare(animal_output_t* out, slot_t* slot, kind_t kind, const char*
     // The rule editor shows the nice name of the last topic level's value, so the app name goes
     // into it: "Animal Detector - Bird", like "Image Health Analytics - Block".
     // The nice name of a topic level is the one of its VALUE (the 5th argument), not of its key.
-    ax_event_key_value_set_add_nice_names(set, "topic1", "tnsaxis", NULL, "Animal Detector", NULL);
-    ax_event_key_value_set_add_nice_names(set, "topic2", "tnsaxis", NULL, slot->nice, NULL);
+    if (kind == KIND_STATE) {
+        ax_event_key_value_set_add_nice_names(set, "topic1", "tnsaxis", NULL, "Animal Detector",
+                                              NULL);
+        ax_event_key_value_set_add_nice_names(set, "topic2", "tnsaxis", NULL, slot->nice, NULL);
+    }
 
     GError* error = NULL;
     if (!ax_event_handler_declare(out->handler, set, kind == KIND_DETAILS /* stateless */,
@@ -112,8 +124,7 @@ animal_output_t* animal_output_new(char** labels, const bool* allowed, size_t n_
         g_free(topic);
     }
     declare(out, &out->slots[n_labels], KIND_STATE, "Any", "Animal Detector - Any animal");
-    declare(out, &out->slots[n_labels + 1], KIND_DETAILS, "Detection",
-            "Animal Detector - Detection (Species, Score)");
+    declare(out, &out->slots[n_labels + 1], KIND_DETAILS, "Detection", "Detection");
     return out;
 }
 
