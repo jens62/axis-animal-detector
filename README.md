@@ -72,6 +72,15 @@ things, so these are where a moving animal shows up. For each of the largest few
 * To see what the model makes of each region, set `DebugThreshold` (e.g. 20): `Seen: [r1] person
   0.31, [r2] couch 0.24` lists the results per region.
 
+## Scrypted and HomeKit Secure Video
+The detector's "any animal" event can start a HomeKit Secure Video recording through Scrypted and the
+[scrypted-onvif-motion-mapper](https://github.com/jens62/scrypted-onvif-motion-mapper) plugin: set-up,
+test and an FAQ are in [docs/scrypted-homekit-secure-video.md](docs/scrypted-homekit-secure-video.md).
+In short: the plugin turns the event `AnimalDetector/Any` (item `active`) into a motion sensor, the
+Custom Motion Sensor extension gives it to the camera (replacing the camera's own motion), and in the
+Home app "Record when motion is detected" makes HomeKit keep every clip instead of letting Apple's own
+animal recognition filter it.
+
 ## Settings and test page
 
 Open the app's settings page (Apps -> Animal Detector -> Open). It has the settings and one
