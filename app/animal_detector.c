@@ -153,21 +153,82 @@ static VdoStream* create_new_vdo_stream(unsigned int channel,
     return g_steal_pointer(&vdo_stream);
 }
 
-static bbox_t* setup_bbox(uint32_t channel) {
-    // Create box drawer for channel
-    bbox_t* bbox = bbox_view_new(channel);
-    if (!bbox) {
-        panic("Failed to create box drawer");
+#define MAX_OVERLAYS 4
+
+/** The same boxes drawn on several video views (channels): a recording only shows its own view. */
+typedef struct {
+    bbox_t* views[MAX_OVERLAYS];
+    int n;
+} overlay_t;
+
+static overlay_t* overlay_new(const char* channels_csv) {
+    overlay_t* o = calloc(1, sizeof(*o));
+    char** parts = g_strsplit(channels_csv, ",", -1);
+    for (char** p = parts; *p != NULL && o->n < MAX_OVERLAYS; p++) {
+        g_strstrip(*p);
+        if (**p == '\0')
+            continue;
+        char* end = NULL;
+        long ch   = strtol(*p, &end, 10);
+        if (*end != '\0' || ch < 0) {
+            syslog(LOG_WARNING, "OverlayChannels: '%s' is not a channel number", *p);
+            continue;
+        }
+        bbox_t* b = bbox_view_new((bbox_channel_t)ch);
+        if (b == NULL) {
+            syslog(LOG_WARNING, "No overlay on video channel %ld (does it exist?)", ch);
+            continue;
+        }
+        bbox_clear(b);
+        bbox_style_outline(b);
+        bbox_thickness_thin(b);
+        bbox_coordinates_frame_normalized(b);
+        o->views[o->n++] = b;
+        syslog(LOG_INFO, "Overlay on video channel %ld", ch);
     }
+    g_strfreev(parts);
+    if (o->n == 0) {
+        free(o);
+        return NULL;
+    }
+    return o;
+}
 
-    bbox_clear(bbox);
-    const bbox_color_t red = bbox_color_from_rgb(0xff, 0x00, 0x00);
+static void overlay_free(overlay_t* o) {
+    if (o == NULL)
+        return;
+    for (int i = 0; i < o->n; i++)
+        bbox_destroy(o->views[i]);
+    free(o);
+}
 
-    bbox_style_outline(bbox);   // Switch to outline style
-    bbox_thickness_thin(bbox);  // Switch to thin lines
-    bbox_color(bbox, red);      // Switch to red
+static void ov_clear(overlay_t* o) {
+    for (int i = 0; i < o->n; i++)
+        bbox_clear(o->views[i]);
+}
 
-    return bbox;
+static void ov_style(overlay_t* o, uint8_t r, uint8_t g, uint8_t b, bool thick) {
+    for (int i = 0; i < o->n; i++) {
+        bbox_color(o->views[i], bbox_color_from_rgb(r, g, b));
+        if (thick)
+            bbox_thickness_thick(o->views[i]);
+        else
+            bbox_thickness_thin(o->views[i]);
+    }
+}
+
+static void ov_rect(overlay_t* o, float l, float t, float r, float b) {
+    for (int i = 0; i < o->n; i++) {
+        bbox_coordinates_frame_normalized(o->views[i]);
+        bbox_rectangle(o->views[i], l, t, r, b);
+    }
+}
+
+static bool ov_commit(overlay_t* o) {
+    bool ok = true;
+    for (int i = 0; i < o->n; i++)
+        ok = bbox_commit(o->views[i], 0u) && ok;
+    return ok;
 }
 
 /* Test buttons on the settings page: "<class> <nonce>" written to the Simulate parameter. */
@@ -248,7 +309,7 @@ typedef struct {
 } xform_t;
 
 typedef struct {
-    bbox_t* bbox;
+    overlay_t* overlay;
     animal_tracker_t* tracker;
     animal_output_t* output;
     const bool* allowed;
@@ -299,21 +360,12 @@ static void remember_box(float l, float t, float r, float b, int64_t hold_ms) {
     sticky[slot] = (sticky_box_t){l, t, r, b, now + hold_ms};
 }
 
-static void draw_style(bbox_t* bbox, uint8_t r, uint8_t g, uint8_t b, bool thick) {
-    bbox_color(bbox, bbox_color_from_rgb(r, g, b));
-    if (thick)
-        bbox_thickness_thick(bbox);
-    else
-        bbox_thickness_thin(bbox);
-}
-
-static void draw_sticky_boxes(bbox_t* bbox) {
+static void draw_sticky_boxes(overlay_t* overlay) {
     int64_t now = now_ms();
-    draw_style(bbox, 0xff, 0x00, 0x00, true);
-    bbox_coordinates_frame_normalized(bbox);
+    ov_style(overlay, 0xff, 0x00, 0x00, true);
     for (int i = 0; i < MAX_STICKY; i++)
         if (sticky[i].until_ms > now)
-            bbox_rectangle(bbox, sticky[i].l, sticky[i].t, sticky[i].r, sticky[i].b);
+            ov_rect(overlay, sticky[i].l, sticky[i].t, sticky[i].r, sticky[i].b);
 }
 
 /**
@@ -346,9 +398,8 @@ static void collect_detections(const frame_ctx_t* c, const xform_t* xf, const ch
         if (animal && scores[i] >= c->threshold) {
             remember_box(bl, bt, br, bb, c->draw_hold_ms);  // drawn red by finish_frame()
         } else if (c->draw_boxes && debug) {
-            draw_style(c->bbox, 0x00, 0xc8, 0x00, false);
-            bbox_coordinates_frame_normalized(c->bbox);
-            bbox_rectangle(c->bbox, bl, bt, br, bb);
+            ov_style(c->overlay, 0x00, 0xc8, 0x00, false);
+            ov_rect(c->overlay, bl, bt, br, bb);
         }
         if (animal && *n < MAX_DETECTIONS)
             dets[(*n)++] = (animal_det_t){label, scores[i]};
@@ -362,8 +413,8 @@ static void finish_frame(const frame_ctx_t* c, animal_det_t* dets, int n, GStrin
         dets[n++] = (animal_det_t){g_atomic_int_get(&sim_label), 0.99f};
     }
     if (c->draw_boxes) {
-        draw_sticky_boxes(c->bbox);
-        if (!bbox_commit(c->bbox, 0u))
+        draw_sticky_boxes(c->overlay);
+        if (!ov_commit(c->overlay))
             panic("Failed to commit box drawer");
     }
     if (seen != NULL) {
@@ -397,7 +448,7 @@ static void process_full_frame(const frame_ctx_t* c) {
     xform_t whole = {0.0, 0.0, 1.0, 1.0};
 
     if (c->draw_boxes)
-        bbox_clear(c->bbox);
+        ov_clear(c->overlay);
     collect_detections(c, &whole, "", dets, &n, seen);
     finish_frame(c, dets, n, seen);
 }
@@ -432,7 +483,7 @@ static unsigned process_region_frame(const frame_ctx_t* c, VdoBuffer* buf, const
     *inferences      = 0;
 
     if (c->draw_boxes)
-        bbox_clear(c->bbox);
+        ov_clear(c->overlay);
     const uint8_t* data = count > 0 ? vdo_buffer_get_data(buf) : NULL;
     if (data != NULL) {
         static uint8_t rgb[300 * 300 * 3];
@@ -460,9 +511,8 @@ static unsigned process_region_frame(const frame_ctx_t* c, VdoBuffer* buf, const
             char tag[8];
             snprintf(tag, sizeof(tag), "[r%d] ", r + 1);
             if (c->draw_boxes) {  // the region itself, so the stream shows what is examined
-                draw_style(c->bbox, 0xff, 0xd7, 0x00, false);
-                bbox_coordinates_frame_normalized(c->bbox);
-                bbox_rectangle(c->bbox, xf.x0, xf.y0, xf.x0 + xf.sx, xf.y0 + xf.sy);
+                ov_style(c->overlay, 0xff, 0xd7, 0x00, false);
+                ov_rect(c->overlay, xf.x0, xf.y0, xf.x0 + xf.sx, xf.y0 + xf.sy);
             }
             collect_detections(c, &xf, tag, dets, &n, seen);
         }
@@ -508,7 +558,7 @@ static gpointer parameter_thread(gpointer loop) {
 
 static void watch_parameters(AXParameter* handle) {
     static const char* const names[] = {"Threshold", "StartFrames", "HoldSec", "DrawBoxes",
-                                        "AnimalClasses", "DebugThreshold", "RegionMode", "MinBoxPct",
+                                        "AnimalClasses", "DebugThreshold", "RegionMode", "MinBoxPct", "OverlayChannels",
                                         "RegionHoldSec", "MaxRegions"};
     loaded_values = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
     for (size_t i = 0; i < G_N_ELEMENTS(names); i++) {
@@ -556,7 +606,7 @@ static gpointer shutdown_watchdog(gpointer user_data) {
  * @brief Main function that starts a stream with different options.
  */
 int main(int argc, char** argv) {
-    bbox_t* bbox                          = NULL;
+    overlay_t* overlay                    = NULL;
     g_autoptr(GError) vdo_error           = NULL;
     model_provider_t* model_provider      = NULL;
     model_tensor_output_t* tensor_outputs = NULL;
@@ -714,8 +764,13 @@ int main(int argc, char** argv) {
     bool* allowed             = NULL;
     if (parse_tensors) {
         parse_labels(&labels, &label_file_data, labels_file, &number_of_classes);
-        if (cfg.draw_boxes)
-            bbox = setup_bbox(vdo_channel);
+        if (cfg.draw_boxes) {
+            overlay = overlay_new(cfg.overlay_channels);
+            if (overlay == NULL) {
+                syslog(LOG_WARNING, "No video channel to draw on, DrawBoxes is off");
+                cfg.draw_boxes = false;
+            }
+        }
         allowed     = calloc(number_of_classes, sizeof(bool));
         int matched = mark_animals(allowed, labels, number_of_classes, cfg.animal_classes);
         syslog(LOG_INFO, "%d of %zu labels are animals", matched, number_of_classes);
@@ -733,7 +788,7 @@ int main(int argc, char** argv) {
         sim_frames_to_feed = cfg.start_frames + 1;
         ax_parameter_register_callback(params, "Simulate", on_simulate, NULL, NULL);
     }
-    frame_ctx_t ctx = {bbox,
+    frame_ctx_t ctx = {overlay,
                        tracker,
                        output,
                        allowed,
@@ -847,9 +902,7 @@ int main(int argc, char** argv) {
     if (label_file_data) {
         free(label_file_data);
     }
-    if (bbox) {
-        bbox_destroy(bbox);
-    }
+    overlay_free(overlay);
     animal_output_free(output);
     animal_tracker_free(tracker);
     free(allowed);

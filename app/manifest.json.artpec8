@@ -20,7 +20,7 @@
             "runOptions": "/usr/local/packages/animal_detector/model/converted_model.tflite 50 /usr/local/packages/animal_detector/label/labels.txt -d axis-a8-dlpu-tflite",
             "vendorUrl": "https://github.com/jens62/axis-animal-detector",
             "runMode": "respawn",
-            "version": "0.3.6",
+            "version": "0.3.7",
             "compatibleOsVersions": [
                 {
                     "min": "12.2",
@@ -35,6 +35,7 @@
                 { "name": "StartFrames", "default": "3", "type": "string" },
                 { "name": "HoldSec", "default": "5", "type": "string" },
                 { "name": "DrawBoxes", "default": "yes", "type": "bool:no,yes" },
+                { "name": "OverlayChannels", "default": "0,1", "type": "string" },
                 { "name": "DebugThreshold", "default": "0", "type": "string" },
                 { "name": "RegionMode", "default": "no", "type": "bool:no,yes" },
                 { "name": "MinBoxPct", "default": "3", "type": "string" },

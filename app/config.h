@@ -16,6 +16,7 @@ typedef struct {
     int region_hold_s;     // keep looking this long after the last region
     int max_regions;       // regions looked at per frame
     bool draw_boxes;       // draw boxes of detected animals on the video stream
+    char* overlay_channels;  // video channels (views) the boxes are drawn on, e.g. "0,1"
     char* animal_classes;  // comma separated label names that count as animals
 } config_t;
 
