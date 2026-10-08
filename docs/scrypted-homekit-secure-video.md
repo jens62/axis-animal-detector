@@ -84,7 +84,7 @@ Change the device's settings in the mapper:
 
 | Setting | Before (animals only) | Now (motion and animals) |
 |---|---|---|
-| Event Topic | `AnimalDetector/Any` | `/(MotionRegionDetector\/Motion\|AnimalDetector\/Any)$/` |
+| Event Topic | `AnimalDetector/Any` | `/^(RuleEngine\/MotionRegionDetector\/Motion\|CameraApplicationPlatform\/AnimalDetector\/Any)$/` |
 | Data Item Name | `active` | empty (the camera's motion item has another name, e.g. `State`; an empty name matches on the topic alone) |
 | Combine Matched Topics (any active) | off | **on** |
 | Motion Reset (seconds) | `0` | `0` |
@@ -92,10 +92,16 @@ Change the device's settings in the mapper:
 Motion is then on as long as **either** the camera reports motion or an animal is there. If one event
 ends while the other is still on, the motion stays on (this is what the combine setting is for;
 without it the last event would win and end the motion too early). The first part of the regex is the
-camera's own motion event: **check the topic your camera really sends** (switch on "Log All Events",
-walk in front of the camera and read the topic in the mapper's log; on an Axis camera it is probably
-`RuleEngine/MotionRegionDetector/Motion` with the item `State`). Both events must carry a single data
-item, otherwise the mapper ignores them. Nothing else changes: the camera still gets the mapper device
+camera's own motion event, written with the full topic path and anchored (`^` ... `$`), so that it
+matches exactly these two events and nothing else. **Check the topic your camera really sends:** switch
+on "Log All Events" shortly before the test, walk in front of the camera for a few seconds, switch it off
+again and copy the console from the top (mapper 0.0.6 or newer leaves out the very noisy `svgframe` pictures
+of Object Analytics, so the early lines are not pushed out of the console buffer). On the author's Axis
+camera the log shows `RuleEngine/MotionRegionDetector/Motion` with the item `State`, among other motion
+topics that fire for the same motion (`VideoSource/MotionAlarm`, `CameraApplicationPlatform/VMD/Camera1ProfileANY`);
+any one of them can serve as the first alternative. Both events must carry a single data item, otherwise
+the mapper ignores them (the camera's Object Analytics events for a person carry four items and are
+ignored). Nothing else changes: the camera still gets the mapper device
 as its Custom Motion Sensor, and step 5 ("Motion is detected") is the setting you want.
 
 Trade-off: normal motion is much more frequent than animals (wind, shadows, people, cars), so recordings
