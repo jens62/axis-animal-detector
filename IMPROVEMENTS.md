@@ -86,10 +86,17 @@ Result on the video: `Species: giraffe`, `Score: 0.441406`.
   be in a recording was not examined further.
 - **Float formatting:** the score is shown as sent, with six decimals (`0.277344`). Whether the overlay can
   format or round it was not checked.
-- **Other ways to feed an overlay, documented but not tried:** *Dynamic text*,
-  `GET /axis-cgi/dynamicoverlay.cgi?action=settext&text_index=1&text=…` (slots `#D1` to `#D16`, Operator
-  level; the app would set it at the start and clear it at the end, no broker needed; open: how an ACAP
-  app calls VAPIX), and the ACAP *Axoverlay* library (draws arbitrary graphics with Cairo, so text as well).
+- **From inside the app (answer in the [forum thread](https://github.com/orgs/AxisCommunications/discussions/1312#discussioncomment-18840811)):**
+  an ACAP app draws overlays with Axoverlay (`axoverlay2`), not through VAPIX. Text should use the ARGB32 color
+  space (the palette space is meant for plain boxes). Examples in
+  [acap-native-sdk-examples](https://github.com/AxisCommunications/acap-native-sdk-examples): `axoverlay`,
+  `axoverlay2`, `axoverlay2-skia`. The text would show only while an animal is present, so there is no stale text
+  and no broker is needed. Not tried; the detector's boxes use a different overlay interface, so this is a change
+  in the app.
+- **VAPIX from inside the app:** the app gets credentials through a D-Bus API (example `vapix`; the API is
+  generally available from AXIS OS 11.9, its format changed in 11.8, fetch the credentials again at each start).
+  Then *Dynamic text* is possible too: `GET /axis-cgi/dynamicoverlay.cgi?action=settext&text_index=1&text=…`
+  (slots `#D1` to `#D16`, Operator level). Not tried.
 - **Widgets:** the *Overlays* menu of the camera also offers widgets (line graph and meter, data from an
   overlay modifier, so from MQTT as well; and Axis' own Audio analytics widgets). No documentation was found
   that a third-party ACAP app can register a widget of its own.
