@@ -31,6 +31,41 @@ package on the camera has to be tried.
 - The scene boxes and our video frame are matched by "latest". Idea: use the timestamps to pick the
   frame that belongs to the box.
 
+## Species and score with the recordings
+A rule with the *Record video* action records a clip when an animal is present, but nothing in the clip
+says which animal it was or with what score. Asked in the Axis developer forum
+([discussion 1312](https://github.com/orgs/AxisCommunications/discussions/1312)); what was found:
+
+- **Recording metadata:** the sidecar XML of a recording has a `<CustomAttributes>` block with only the
+  rule's trigger data (`TriggerTrigger`, `TriggerName` = the rule name, `TriggerType`). `record/list.cgi`
+  shows the same values as `eventtrigger`, `eventid` and `recordingtype`. No documented way was found to add
+  species or score there, from an app or from a rule.
+- **Web UI:** the recordings window of the camera (`/camera/index.html#/recordings`) shows a fixed set of the
+  `list.cgi` fields (recording ID, disk, type, *Ereignis* = `eventid`, status, source, codec, frame rate,
+  resolution, audio). Only `eventid`, i.e. the rule name, is free text. One rule per species would put the
+  species there; the score has no place. Nothing was found that lets an app extend that window.
+- **Recording Notify API** ([doc](https://developer.axis.com/acap/reference/supported-apis/edge_storage_apis/afd-recording-notify/)):
+  the app can *listen* to `RecordingStarted`/`RecordingCompleted` (times, storage, group, trigger time) but
+  cannot attach anything to a recording. Not tried: whether it also fires for recordings started by a rule
+  without a recording group, and whether its IDs match the `recordingid` of `list.cgi`.
+- **Join by time works:** on one recording (2026-10-09, 05:23:03 to 05:23:11 local) the detection of the log
+  (05:23:06.6, bear, score 0.28) lies 3.5 s after the start and 4.8 s before the stop. One clean case, not
+  tested with bursts, several animals or a second detection inside one clip.
+
+Idea (suggested by Cacsjep in the
+[forum thread](https://github.com/orgs/AxisCommunications/discussions/1312#discussioncomment-18831848)): keep
+a small database of the metadata with its time, correlate by time, and show recordings plus everything you
+need in an ACAP UI of the app, instead of working against the recording's own limits. For this app:
+1. The app writes every detection (time, species, score) to a small file or database on the camera.
+2. A "Recordings" tab on the app's existing web page (`app/html`) reads the recordings from `list.cgi`
+   and the stored detections, joins them with a slack of a few seconds around `StartTime`/`StopTime`, and shows
+   time, length, species, score and a link to the recording.
+
+Open: where the app can keep data that survives restarts (and whether a small database is available in the
+ACAP SDK), whether the app's page may call `list.cgi` with the browser's session and which role that needs,
+whether the page can link to the Web UI's player or to the export of a single clip, clock accuracy between
+the detection and the recording, and the retention (delete detections together with their recordings).
+
 ## Animals the model does not know
 The model only knows the ten COCO animals. A snake or a crocodile is either not recognised at all (no
 event, no message) or recognised as the wrong animal (a crocodile as `dog`, with a notification that
