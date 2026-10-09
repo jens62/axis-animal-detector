@@ -112,6 +112,35 @@ the test buttons of Axis' audio detection.
 
 `build/*.eap` is the package (aarch64, ARTPEC-8). Unit tests of the start/stop logic: `sh tests/run.sh`.
 
+## Testing with videos, without a camera
+`tools/video_test.py` runs the app's model and its decision logic on video files on a Mac or a Linux
+machine. It decodes the frames with `ffmpeg`, squashes them to the model's 300x300 input like the app does in its
+default mode, runs the same SSD MobileNet v2 (COCO) model on the CPU, applies `AnimalClasses`, `MinAnimalPct`
+and then the app's own tracker (`app/animal_events.c` and `app/animal_any.c`, compiled from this repository and
+called from Python) with `Threshold`, `StartFrames` and `HoldSec`. It prints the events the camera would send.
+
+    python3 -m venv ~/.venvs/animal-video-test
+    ~/.venvs/animal-video-test/bin/pip install ai-edge-litert numpy pillow
+    ~/.venvs/animal-video-test/bin/python tools/video_test.py my_video.mp4 --threshold 50 --save-hits hits/
+
+Example output:
+
+    00:00.6  START bird (score 0.87)
+    00:00.6  ANY ANIMAL present
+    00:09.9  stop  bird (seen for 4.3 s, best score 1.00)
+    00:09.9  ANY ANIMAL gone
+
+Options mirror the settings (`--threshold`, `--start-frames`, `--hold-sec`, `--min-animal-pct`, `--classes`);
+`--fps` is the number of frames analysed per second (`StartFrames` counts frames), `--debug-threshold` also lists
+animal detections below the threshold (like `DebugThreshold`), `--save-hits DIR` saves the frames of the events
+with boxes, `--start`/`--duration` select a part of the video. It needs the model and the label file from a build
+(`build/model/converted_model.tflite`, `build/label/labels.txt`), or pass `--model`/`--labels`.
+
+The results are close to the camera's, not identical: the camera's DLPU runs the same quantised model but not bit
+for bit, the camera analyses its raw sensor stream (a video file is compressed), its frame rate depends on the
+speed of its analysis, and **region mode is not reproduced**. Good test material: a clip with an animal (does it
+start, and when?), a long clip without one (does the wind or a shadow start an event at your `Threshold`?).
+
 Planned: species via a model fine-tuned on camera-trap data.
 
 Companion project: [axis-scene-mqtt-bridge](https://github.com/jens62/axis-scene-mqtt-bridge).
