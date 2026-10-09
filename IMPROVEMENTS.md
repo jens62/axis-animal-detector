@@ -24,7 +24,8 @@ package on the camera has to be tried.
   that stay in the same small area for a long time, require that a region really travels, a mask of
   image areas to ignore (vegetation), a higher default `StartFrames`, and a check of the model result
   against a second look (the same region on the next frames).
-- The overlay API draws no text, so the video cannot show species and score. Idea: put the box
+- The bounding-box overlay the app uses draws no text. Species and score can be shown as text with the
+  camera's MQTT overlay instead (see "Species and score with the recordings"). Idea: put the box
   (`Left`, `Top`, `Right`, `Bottom`) into the `Detection` pulse so that other tools can draw it.
 - Animals that do not move are not seen in region mode. Idea: a slow full-frame pass (every few
   seconds) as an option.
@@ -60,6 +61,38 @@ need in an ACAP UI of the app, instead of working against the recording's own li
 2. A "Recordings" tab on the app's existing web page (`app/html`) reads the recordings from `list.cgi`
    and the stored detections, joins them with a slack of a few seconds around `StartTime`/`StopTime`, and shows
    time, length, species, score and a link to the recording.
+
+### Species and score as text in the video (works out of the box, tried with a simulation)
+AXIS OS can burn MQTT data into the video, so the clip itself shows the animal. No change in the detector
+is needed; it uses the `Detection` message the bridge already publishes
+(`<prefix>/motion/AnimalDetector/Detection`, `{"time":…,"topic":…,"data":{"Species":"giraffe","Score":0.44}}`).
+Documented as the overlay modifiers `#XMP<index>` (whole payload) and `#XMD<index>` (one JSON field) in the
+[Overlay API](https://developer.axis.com/vapix/network-video/overlay-api/); the page does not say how the
+index belongs to a topic, this is how it was set up in the camera's web interface:
+1. The camera's MQTT client is connected to the broker the bridge publishes to.
+2. *MQTT > MQTT overlays > Add overlay modifier*, one row per value, with the topic filter
+   `<prefix>/motion/AnimalDetector/Detection` and the data field `data.Species` (second row `data.Score`).
+   The rows get the modifiers by their order: `#XMP0`/`#XMD0` for the first, `#XMP1`/`#XMD1` for the second.
+3. *Overlays > Text*, with two lines `Species: #XMD0` and `Score: #XMD1`, and colour, size and position as
+   you like.
+
+Result on the video: `Species: giraffe`, `Score: 0.441406`.
+- **Stale text:** the pulse is sent once at the start of an animal, so the text stays until the next message.
+  Idea: publish an empty value (or `-`) on the same topic when the animal is gone (the `Any` event ends), from
+  the bridge or the app. The openHAB script `animal_status.py` does this for its items, not for the overlay.
+- **It is in the recorded clips:** a clip recorded by the rule shows the overlay when it is played back
+  (`Species: giraffe`, `Score: 0.277344`) together with the detector's boxes. The giraffe
+  is presumably from the detector's simulation; which video channel/view the overlay must be set for in order to
+  be in a recording was not examined further.
+- **Float formatting:** the score is shown as sent, with six decimals (`0.277344`). Whether the overlay can
+  format or round it was not checked.
+- **Other ways to feed an overlay, documented but not tried:** *Dynamic text*,
+  `GET /axis-cgi/dynamicoverlay.cgi?action=settext&text_index=1&text=…` (slots `#D1` to `#D16`, Operator
+  level; the app would set it at the start and clear it at the end, no broker needed; open: how an ACAP
+  app calls VAPIX), and the ACAP *Axoverlay* library (draws arbitrary graphics with Cairo, so text as well).
+- **Widgets:** the *Overlays* menu of the camera also offers widgets (line graph and meter, data from an
+  overlay modifier, so from MQTT as well; and Axis' own Audio analytics widgets). No documentation was found
+  that a third-party ACAP app can register a widget of its own.
 
 Open: where the app can keep data that survives restarts (and whether a small database is available in the
 ACAP SDK), whether the app's page may call `list.cgi` with the browser's session and which role that needs,
