@@ -124,3 +124,36 @@ names the wrong species), which is more likely at a low `Threshold`.
 - Species beyond the COCO animals (raccoon, fox, deer, wild boar ...): fine-tune on camera-trap data
   (COCO Camera Traps), also for IR/night images, and convert it for the DLPU.
 - Check the DLPU load together with Axis Object Analytics.
+
+## Species and score on the video: labels drawn by the detector
+The bounding-box overlay the detector uses draws rectangles only, no text. Idea: draw a label (species
+and score, e.g. "bear 0.56") next to the red box with `axoverlay2` (Cairo or Skia as the renderer; the
+SDK examples `axoverlay2` and `axoverlay2-skia` show how, ARTPEC-8 is supported), optionally with a
+small status text. A setting such as "Draw labels" would make it optional. To do: text rendering and the
+overlay's lifecycle per video channel (`OverlayChannels`), and a check how it behaves in recordings.
+
+Meanwhile, without code: the camera's own MQTT overlay can show the `Detection` message of the bridge
+(`Species: horse`, `Score: 0.56`) as text, and an MQTT overlay can be the data source of the Line graph or
+Meter widget (not tried with the score).
+
+## Question for Axis: own entries in Overlays > Widgets?
+The Widgets list in the web UI (Video > Overlays > Add overlay) has entries such as the Audio Analytics
+meters and its classification widget. We found no public way for an ACAP to add an entry of its own:
+the Overlay API documentation does not mention widgets, the manifest schema has only
+`resources.overlay` (access), and `axoverlay2_restricted.h` says widgets are overlays drawn with
+`axoverlay2` and that the restricted functions need the `overlay-restricted` group. The advantage of such
+a widget would be that the user decides in the camera's own UI whether to use it.
+
+Draft question (to post, if wanted, in the Axis discussions, e.g. in #1312 or as a new one):
+
+> Is there a public way for an ACAP application to register its own entry in the web UI's
+> Video > Overlays > Add overlay > Widgets list, the way AXIS Audio Analytics provides its SPL and AAD
+> meters and its classification widget? We found nothing in the Overlay API documentation, the manifest
+> schema (`resources.overlay` only) or the Native SDK examples. `axoverlay2_restricted.h` mentions that
+> widgets are overlays drawn with `axoverlay2` and that some functions need the `overlay-restricted`
+> group; is that group available to third-party applications, and does the widget list read something
+> from the application (a manifest entry, a D-Bus service, an overlay modifier)? If this is not
+> supported, what is the recommended way to let the user show our application's data as an overlay that
+> they can switch on and off in the camera's UI (MQTT overlay modifiers, dynamic overlay via VAPIX, or
+> `axoverlay2` with a setting in the application)?
+
