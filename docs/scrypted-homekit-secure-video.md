@@ -46,12 +46,12 @@ Everything marked **not verified** was not tried on that set-up.
 Every event of the detector will start a recording (see step 6), so false alarms cost iCloud
 storage and notifications. In the detector's settings:
 
-| Setting | Suggestion |
+| Label on the settings page (parameter) | Suggestion |
 |---|---|
-| Minimum score (`Threshold`) | about 65 % (low values are for experiments only) |
-| Report an animal after (`StartFrames`) | 3 frames |
-| Smallest animal (`MinAnimalPct`) | 0 at first, then raise it until the wind no longer triggers |
-| Draw boxes (`DrawBoxes`), video channels (`OverlayChannels`) | on, `0,1`: the recording then shows the red and yellow boxes |
+| Minimum score (%) (`Threshold`) | about 65 % (low values are for experiments only) |
+| Report an animal after (frames in a row) (`StartFrames`) | 3 frames |
+| Smallest animal (% of the image) (`MinAnimalPct`) | 0 at first, then raise it until the wind no longer triggers |
+| Draw boxes around animals in the video stream (`DrawBoxes`) and Draw the boxes on video channels (`OverlayChannels`) | on, `0,1`: the recording then shows the red and yellow boxes |
 
 ### 2. Check that Scrypted can see the camera event
 Install the mapper plugin (build and deploy it with `npm run build` and `npx scrypted-deploy`, see
@@ -171,7 +171,7 @@ Because the camera's own motion sensor was replaced (see above). Only the detect
 unless you combine both events in the mapper ("Also record on normal motion").
 
 **Do I have to create another ONVIF media profile for the stream with the animal rectangles?**
-No. The rectangles are drawn into the camera's video on the views listed in `OverlayChannels`
+No. The rectangles are drawn into the camera's video on the views listed in "Draw the boxes on video channels" (`OverlayChannels`)
 (default `0,1`: the whole sensor and "View Area 1"). A stream or recording shows the boxes of its own
 view, whatever profile it uses. Recordings from "View Area 1" (the camera's rule, with "no stream
 profile") show them. If Scrypted's stream comes from another view, add its channel number to
@@ -190,8 +190,8 @@ the MQTT message `…/motion/AnimalDetector/Detection` (for openHAB, notificatio
 
 **The wind starts recordings.**
 Moving foliage becomes class-less tracks, and the model reads some of them as an animal. With the
-detector at a low `Threshold` and `StartFrames` 1, one gust is enough. Use `Threshold` about 65 %,
-`StartFrames` 3, and `MinAnimalPct`. The red box in the recording shows what the model found. See the
+detector at a low "Minimum score" (`Threshold`) and "Report an animal after" (`StartFrames`) 1, one gust is
+enough. Use a minimum score of about 65 %, 3 frames, and "Smallest animal (% of the image)" (`MinAnimalPct`). The red box in the recording shows what the model found. See the
 detector's `IMPROVEMENTS.md` for further ideas.
 
 **Do I need the mapper device in HomeKit?**

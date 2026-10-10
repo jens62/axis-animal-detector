@@ -59,16 +59,16 @@ take minutes.
 ## Region mode (moving animals only)
 
 The model sees the whole image squeezed to 300x300 pixels, so a small animal is only a few pixels.
-With `RegionMode` on, the app instead reads the camera's scene metadata (`com.axis.scene.frame.v1`,
+With `RegionMode` ("Only look where the camera sees unclassified movement") on, the app instead reads the camera's scene metadata (`com.axis.scene.frame.v1`,
 through Device Data Hub, no manifest resource needed) and takes the boxes of moving objects that the
 camera could not classify (no `class`: not a person, not a vehicle). The tracker only follows moving
 things, so these are where a moving animal shows up. For each of the largest few boxes
-(`MaxRegions`) the app crops a square with some margin out of a 1920x1080 stream, scales it to
+(`MaxRegions`, "Regions per frame") the app crops a square with some margin out of a 1920x1080 stream, scales it to
 300x300 in software, and runs the model on it. The existing start/stop logic does the rest.
 
-* Boxes smaller than `MinBoxPct` (sqrt(width x height), percent of the image) are ignored: the
+* Boxes smaller than `MinBoxPct` ("Smallest region (% of the image)", sqrt(width x height) in percent of the image) are ignored: the
   tracker reports tiny boxes at the image edge all the time.
-* The last regions stay valid for `RegionHoldSec`, because the camera's tracks flicker.
+* The last regions stay valid for `RegionHoldSec` ("Keep looking for (s) after the last region"), because the camera's tracks flicker.
 * With nothing moving the model does not run at all and the stream drops to about 5 fps.
 * Animals that do not move are not detected in this mode, and neither are animals the camera does
   not track. The stream shows the examined regions (and the detections) when `DrawBoxes` is on.
@@ -88,22 +88,23 @@ animal recognition filter it.
 
 Open the app's settings page (Apps -> Animal Detector -> Open). It has the settings and one
 **test button per animal class**: it fires the real event (start now, stop after `HoldSec`), like
-the test buttons of Axis' audio detection.
+the test buttons of Axis' audio detection. The page shows the labels in the first column below; the
+parameter names are what the log and the camera's parameter list use.
 
-| Parameter | Default | Meaning |
-|---|---|---|
-| `Threshold` | 50 | Minimum score in percent |
-| `StartFrames` | 3 | Frames in a row before an animal is reported |
-| `HoldSec` | 5 | Seconds without the animal until it is reported as gone |
-| `AnimalClasses` | bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe | Label names of the COCO label file that count as animals |
-| `OverlayChannels` | 0,1 | Video channels (views) the boxes are drawn on: a stream or recording only shows the boxes of its own view (0 = whole sensor, 1 = "View Area 1"). Channels that do not exist are skipped |
-| `DrawBoxes` | yes | Draw boxes on the video stream: yellow = the region that is analysed (region mode), red = an animal at or above `Threshold` (kept for `HoldSec` after the last sighting), green = other objects (only with `DebugThreshold`). The overlay cannot show text, species and score are in the log and the events |
-| `RegionMode` | no | Only analyse regions of unclassified movement (see above) |
-| `MinAnimalPct` | 0 | Smallest animal, sqrt(width x height) of the detected box in percent of the image; 0 = off. Smaller detections are ignored (with `DebugThreshold` the log marks them "(animal, too small)"). Against leaves and spots moved by the wind |
-| `MinBoxPct` | 3 | Smallest region, sqrt(width x height) in percent of the image |
-| `RegionHoldSec` | 3 | Keep looking this long after the last region |
-| `MaxRegions` | 3 | Regions per frame, largest first |
-| `DebugThreshold` | 0 | Troubleshooting, 0 = off. Logs `Seen: …` (at most once a second) with everything the model sees at this score (percent) or more, animals or not, and draws boxes for all of it |
+| Label on the settings page | Parameter | Default | Meaning |
+|---|---|---|---|
+| Minimum score (%) | `Threshold` | 50 | Minimum score in percent |
+| Report an animal after (frames in a row) | `StartFrames` | 3 | Frames in a row before an animal is reported |
+| Animal is gone after (s) | `HoldSec` | 5 | Seconds without the animal until it is reported as gone |
+| Animal classes (comma separated, names from the COCO label file) | `AnimalClasses` | bird, cat, dog, horse, sheep, cow, elephant, bear, zebra, giraffe | Label names of the COCO label file that count as animals |
+| Draw the boxes on video channels (comma separated) | `OverlayChannels` | 0,1 | Video channels (views) the boxes are drawn on: a stream or recording only shows the boxes of its own view (0 = whole sensor, 1 = "View Area 1"). Channels that do not exist are skipped |
+| Draw boxes around animals in the video stream (checkbox) | `DrawBoxes` | yes | Draw boxes on the video stream: yellow = the region that is analysed (region mode), red = an animal at or above `Threshold` (kept for `HoldSec` after the last sighting), green = other objects (only with `DebugThreshold`). The overlay cannot show text, species and score are in the log and the events |
+| Only look where the camera sees unclassified movement (checkbox) | `RegionMode` | no | Only analyse regions of unclassified movement (see above) |
+| Smallest animal (% of the image) | `MinAnimalPct` | 0 | Smallest animal, sqrt(width x height) of the detected box in percent of the image; 0 = off. Smaller detections are ignored (with `DebugThreshold` the log marks them "(animal, too small)"). Against leaves and spots moved by the wind |
+| Smallest region (% of the image) | `MinBoxPct` | 3 | Smallest region, sqrt(width x height) in percent of the image |
+| Keep looking for (s) after the last region | `RegionHoldSec` | 3 | Keep looking this long after the last region |
+| Regions per frame (largest first) | `MaxRegions` | 3 | Regions per frame, largest first |
+| Troubleshooting: log everything seen above (%) | `DebugThreshold` | 0 | Troubleshooting, 0 = off. Logs `Seen: …` (at most once a second) with everything the model sees at this score (percent) or more, animals or not, and draws boxes for all of it |
 
 ## Build
 
