@@ -89,6 +89,11 @@ Change the device's settings in the mapper:
 | Combine Matched Topics (any active) | off | **on** |
 | Motion Reset (seconds) | `0` | `0` |
 
+The mapper's settings page for this case (host and user name replaced by placeholders; the topic is the
+regex from the table):
+
+![ONVIF Motion Mapper settings: Event Topic regex for the camera's motion and the animal event, Combine Matched Topics on, Data Item Name empty, Motion Reset 0](images/mapper-settings-motion-plus-animals.jpg)
+
 Motion is then on as long as **either** the camera reports motion or an animal is there. If one event
 ends while the other is still on, the motion stays on (this is what the combine setting is for;
 without it the last event would win and end the motion too early). The first part of the regex is the
@@ -217,5 +222,5 @@ No. It only feeds the camera. Switch HomeKit off for it.
 
 ## Screenshots (to add)
 Useful, cleaned of addresses, names, pairing codes and QR codes, to be put into `docs/images/`:
-the mapper device's settings, the camera's "Custom Motion Sensor" setting, the Home app's
+the camera's "Custom Motion Sensor" setting, the Home app's
 "Weitere Optionen" screen, and the camera's rule editor with the "Animal Detector - …" entries.
